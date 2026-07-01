@@ -1,0 +1,9 @@
+#!/usr/bin/with-contenv bashio
+# Public listener for HA Ingress. Rewrites the /ha-ingress sentinel to the real
+# per-session X-Ingress-Path so Next's assets/links route back through Ingress.
+export UPSTREAM="http://127.0.0.1:3000"
+export INGRESS_PORT=8099
+export SENTINEL="/ha-ingress"
+
+bashio::log.info "Starting Ingress proxy on :${INGRESS_PORT} -> ${UPSTREAM}"
+exec node /etc/timeclock/proxy.js

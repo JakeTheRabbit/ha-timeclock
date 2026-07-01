@@ -1,0 +1,24 @@
+#!/usr/bin/with-contenv bashio
+# Next.js standalone server (App Router + Hono API). Loopback only — the
+# ingress proxy is the sole public listener. Built with basePath=/ha-ingress.
+cd /opt/timeclock || bashio::exit.nok "app dir missing"
+
+export NODE_ENV=production
+export PORT=3000
+export HOSTNAME=127.0.0.1
+export TZ="$(bashio::config 'timezone' 'Pacific/Auckland')"
+# Runtime connects as the restricted, non-superuser role (Layer 1: no
+# UPDATE/DELETE privilege on audit_log). Migrations run separately as postgres.
+export DATABASE_URL="postgresql://timeclock_app@127.0.0.1:5432/timeclock"
+
+# Session-cookie HMAC secret: generated once, persisted so sessions survive
+# add-on restarts/updates.
+if [ ! -s /data/session_secret ]; then
+  node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))" > /data/session_secret
+  chmod 600 /data/session_secret
+  bashio::log.info "Generated new session secret"
+fi
+export SESSION_SECRET="$(cat /data/session_secret)"
+
+bashio::log.info "Starting Time Clock app on 127.0.0.1:${PORT} (TZ=${TZ})"
+exec node server.js

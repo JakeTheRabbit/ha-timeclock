@@ -1,0 +1,8 @@
+# Home Assistant community add-on base (Alpine 3.24 + s6-overlay v3 + bashio).
+# Bump this tag as new base releases land: https://github.com/hassio-addons/addon-base/releases
+build_from:
+  amd64: ghcr.io/hassio-addons/base:21.0.0
+  aarch64: ghcr.io/hassio-addons/base:21.0.0
+labels:
+  org.opencontainers.image.title: "Time Clock"
+  org.opencontainers.image.source: "https://github.com/JakeTheRabbit/ha-timeclock"

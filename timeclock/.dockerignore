@@ -1,0 +1,8 @@
+# Build context is this add-on dir. Keep it lean + fast for the on-box build.
+webapp/node_modules
+webapp/.next
+webapp/.git
+webapp/coverage
+**/*.log
+.git
+.DS_Store
