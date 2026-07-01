@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 — fix first-boot: seed the claimable Admin
+
+- Fresh installs had an empty employees table, so "claim admin" returned 409
+  (no_claimable_admin). migrate.sh now seeds one Admin employee idempotently
+  after migrations.
+
 ## 0.1.2 — fix ingress 400s on API responses (stuck loading panel)
 
 - The ingress proxy buffered chunked upstream responses and set
