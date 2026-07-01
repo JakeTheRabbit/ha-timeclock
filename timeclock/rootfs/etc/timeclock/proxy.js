@@ -44,6 +44,26 @@ function replaceAll(str, find, repl) {
   return str.split(find).join(repl);
 }
 
+// Hop-by-hop headers must never be forwarded (RFC 7230 §6.1). Critically:
+// upstream sends chunked (transfer-encoding) while we buffer and set
+// content-length — forwarding BOTH is illegal and Supervisor's aiohttp
+// rejects the response with 400 ("Content-Length can't be present with
+// Transfer-Encoding"). Node manages framing itself on the way out.
+const HOP_BY_HOP = [
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'te',
+  'trailer',
+  'upgrade',
+  'proxy-authenticate',
+  'proxy-authorization',
+];
+function stripHopByHop(headers) {
+  for (const h of HOP_BY_HOP) delete headers[h];
+  return headers;
+}
+
 // Ingress requests reach the add-on from the Supervisor gateway. Identity
 // headers (X-Remote-User-*) are only trustworthy from that source — strip them
 // from anything else so another container on the docker network cannot spoof an
@@ -86,7 +106,7 @@ const server = http.createServer((req, res) => {
       headers,
     },
     (proxyRes) => {
-      const outHeaders = Object.assign({}, proxyRes.headers);
+      const outHeaders = stripHopByHop(Object.assign({}, proxyRes.headers));
 
       if (typeof outHeaders.location === 'string') {
         outHeaders.location = replaceAll(outHeaders.location, SENTINEL, ingressPath);
