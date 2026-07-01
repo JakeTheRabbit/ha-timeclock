@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — fix ingress 400s on API responses (stuck loading panel)
+
+- The ingress proxy buffered chunked upstream responses and set
+  Content-Length while still forwarding the upstream
+  `Transfer-Encoding: chunked` header. Supervisor's aiohttp rightly rejects
+  the illegal combination with 400 ("Content-Length can't be present with
+  Transfer-Encoding"), so every dynamic API call failed and the panel hung on
+  the loading splash (static HTML had explicit lengths and worked — which is
+  why assets rendered but the app never came up).
+- Proxy now strips all RFC 7230 hop-by-hop headers (transfer-encoding,
+  connection, keep-alive, te, trailer, upgrade, proxy-*) before responding.
+
 ## 0.1.1 — fix Supervisor build
 
 - `ARG BUILD_FROM` moved above the first `FROM` (global scope). Declared
