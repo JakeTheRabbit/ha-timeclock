@@ -23,4 +23,12 @@ for f in /opt/timeclock/migrations/*.sql; do
   bashio::log.info "Applying migration $(basename "$f")"
   psql -h 127.0.0.1 -U postgres -d timeclock -v ON_ERROR_STOP=1 -f "$f"
 done
+
+# First-boot seed: exactly one claimable Admin must exist or the panel's
+# "claim admin" bootstrap has nothing to claim. Idempotent.
+psql -h 127.0.0.1 -U postgres -d timeclock -v ON_ERROR_STOP=1 -c "
+  INSERT INTO employees (display_name, role)
+  SELECT 'Admin', 'admin'
+  WHERE NOT EXISTS (SELECT 1 FROM employees WHERE role = 'admin' AND active);"
+
 bashio::log.info "Migrations applied (audit immutability active)"
