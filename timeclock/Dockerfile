@@ -1,3 +1,8 @@
+# ARG used in a FROM must be declared BEFORE the first FROM (global scope) —
+# declared mid-file it is stage-scoped and the second FROM sees it blank.
+# Supervisor overrides this via --build-arg from build.yaml.
+ARG BUILD_FROM=ghcr.io/hassio-addons/base:21.0.0
+
 # =========================================================================
 # Build stage — compile the Next.js standalone bundle with a full Node image.
 # =========================================================================
@@ -11,10 +16,9 @@ RUN npm run build
 
 # =========================================================================
 # Runtime stage — HA add-on base (s6-overlay v3 + bashio) + Node + Postgres.
-# BUILD_FROM is injected by the HA build system from build.yaml; the default
-# keeps a plain `docker build` working locally.
+# BUILD_FROM is injected by the HA build system from build.yaml; the global
+# default above keeps a plain `docker build` working locally.
 # =========================================================================
-ARG BUILD_FROM=ghcr.io/hassio-addons/base:21.0.0
 FROM ${BUILD_FROM}
 
 # Node runtime + bundled PostgreSQL 16 (Alpine 3.24 provides both).

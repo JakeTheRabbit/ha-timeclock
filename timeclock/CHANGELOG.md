@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — fix Supervisor build
+
+- `ARG BUILD_FROM` moved above the first `FROM` (global scope). Declared
+  mid-file it was stage-scoped, so the runtime `FROM ${BUILD_FROM}` resolved
+  blank and the on-box build failed ("base name should not be blank").
+  Verified with a real `docker buildx build` using the Supervisor's exact
+  invocation.
+
 ## 0.1.0 — P3–P12: feature-complete
 
 - **P3 clock**: in/out, paid/unpaid breaks, auto-deduct meal break (settings-
