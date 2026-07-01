@@ -1,0 +1,35 @@
+import cron from "node-cron";
+import { runAutoClockout } from "./auto-clockout";
+import { runDbBackup } from "./db-backup";
+import { runAccrual } from "@/server/domain/leave/accrual";
+import { APP_TZ } from "@/lib/tz";
+
+let started = false;
+
+/** Registered once from instrumentation.ts when the server boots. */
+export function startScheduler(): void {
+  if (started) return;
+  started = true;
+
+  const opts = { timezone: APP_TZ };
+
+  // Auto-clockout sweep every 15 minutes.
+  cron.schedule("*/15 * * * *", () => void safe("auto-clockout", runAutoClockout), opts);
+
+  // Daily 02:30 NZ: DB backup + verify.
+  cron.schedule("30 2 * * *", () => void safe("db-backup", runDbBackup), opts);
+
+  // Weekly Monday 03:00 NZ: leave accrual over newly closed entries.
+  cron.schedule("0 3 * * 1", () => void safe("leave-accrual", () => runAccrual(null)), opts);
+
+  console.log("[cron] scheduler started (auto-clockout 15m, backup 02:30, accrual Mon 03:00)");
+}
+
+async function safe(name: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    const res = await fn();
+    console.log(`[cron] ${name} ok`, typeof res === "number" ? `(${res})` : "");
+  } catch (e) {
+    console.error(`[cron] ${name} FAILED:`, e instanceof Error ? e.message : e);
+  }
+}
