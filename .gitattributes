@@ -1,0 +1,6 @@
+# s6 + shell scripts must stay LF or they break inside the Linux container.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+timeclock/rootfs/** text eol=lf
+*.sh text eol=lf

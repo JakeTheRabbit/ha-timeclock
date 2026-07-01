@@ -1,0 +1,29 @@
+name: Time Clock
+version: "0.1.0"
+slug: timeclock
+description: >-
+  Employee time-clock system (kiosk-first) with an immutable, hash-chained audit
+  trail. Bundled PostgreSQL 16.
+url: https://github.com/JakeTheRabbit/ha-timeclock
+# Own s6 init is provided by the base image; do not let Supervisor override it.
+init: false
+arch:
+  - amd64
+  - aarch64
+# --- Ingress: served inside the HA sidebar, local network only (P0). ---
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:clock-check-outline
+panel_title: Time Clock
+# --- APIs the add-on may call (used from P2 auth / P10 notify onward). ---
+hassio_api: true
+homeassistant_api: true
+auth_api: true
+# Persisted /data volume holds the Postgres cluster + backups automatically.
+backup: hot
+options:
+  timezone: Pacific/Auckland
+  log_level: info
+schema:
+  timezone: str
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
