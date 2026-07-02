@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 — sidebar for all users + fix back-navigation 404s
+
+- `panel_admin: false`: the sidebar panel now shows for non-admin HA users
+  (staff). HA's default hides ingress panels from everyone outside the admin
+  group — staff couldn't see the Time Clock at all.
+- Ingress proxy now rewrites `text/x-component` (Next.js RSC flight payloads).
+  Client-side navigations were seeding router/history state with raw internal
+  `/ha-ingress/*` URLs, so the in-app back button (e.g. Admin → back to Home)
+  requested those paths against the HA host and 404'd.
+
 ## 0.5.0 — localization: countries, holidays, and language packs
 
 Use it outside New Zealand without hand-editing config.
