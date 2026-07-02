@@ -1,10 +1,38 @@
 "use client";
 
 import Link from "next/link";
+import * as React from "react";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Pencil } from "lucide-react";
 
 interface EntryRow {
   id: string;
@@ -38,12 +66,34 @@ const fmtT = (s: string) => new Date(s).toLocaleTimeString("en-NZ", { hour: "2-d
 const fmtD = (s: string) => new Date(s).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
 const hrs = (min: number | null) => (min == null ? "—" : (min / 60).toFixed(2) + "h");
 
+const breaksLabel = (e: EntryRow) =>
+  e.breaks.length === 0
+    ? "—"
+    : e.breaks
+        .map(
+          (b) =>
+            `${b.autoDeducted ? "auto " : ""}${b.paid ? "paid" : "unpaid"} ${
+              b.endAt
+                ? Math.round((+new Date(b.endAt) - +new Date(b.startAt)) / 60000) + "m"
+                : "open"
+            }`,
+        )
+        .join(", ");
+
+const errMsg = (e: unknown) =>
+  e instanceof ApiError
+    ? ((e.body as { error?: string })?.error ?? `Error ${e.status}`)
+    : "Request failed";
+
+function Container({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
+}
+
 export default function MyHoursPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const [range, setRange] = useState<Range>("week");
   const [editing, setEditing] = useState<EntryRow | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
   const { from, to } = useMemo(() => rangeDates(range), [range]);
   const list = useQuery({
@@ -57,119 +107,181 @@ export default function MyHoursPage() {
 
   const totalMin = list.data?.entries.reduce((a, e) => a + (e.workedMinutes ?? 0), 0) ?? 0;
 
-  if (isLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
-  if (!session)
+  if (isLoading)
     return (
-      <Shell>
-        <p className="text-slate-400">
-          Not signed in — <Link className="underline" href="/pin">PIN sign-in</Link>.
-        </p>
-      </Shell>
+      <Container>
+        <Skeleton className="h-11 w-64" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </Container>
     );
 
+  if (!session)
+    return (
+      <Container>
+        <Card>
+          <CardContent className="flex flex-col items-start gap-3">
+            <p className="text-sm text-muted-foreground">You are not signed in.</p>
+            <Button asChild variant="secondary">
+              <Link href="/pin">PIN sign-in</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </Container>
+    );
+
+  const entries = list.data?.entries ?? [];
+
   return (
-    <Shell>
-      <div className="flex items-center gap-2">
-        {(["today", "week", "fortnight"] as Range[]).map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            className={`rounded-lg px-4 py-2 text-sm capitalize ${
-              range === r ? "bg-sky-500 font-semibold text-slate-950" : "bg-slate-800 hover:bg-slate-700"
-            }`}
-          >
-            {r}
-          </button>
-        ))}
-        <span className="ml-auto text-sm text-slate-400">
-          Total: <span className="font-mono text-slate-100">{hrs(totalMin)}</span>
+    <Container>
+      <div className="flex flex-wrap items-center gap-2">
+        <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
+          <TabsList>
+            {(["today", "week", "fortnight"] as Range[]).map((r) => (
+              <TabsTrigger key={r} value={r} className="capitalize">
+                {r}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <span className="ml-auto text-sm text-muted-foreground">
+          Total: <span className="font-mono text-foreground">{hrs(totalMin)}</span>
         </span>
       </div>
 
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
-            <th className="py-2 pr-3">Day</th>
-            <th className="py-2 pr-3">In</th>
-            <th className="py-2 pr-3">Out</th>
-            <th className="py-2 pr-3">Breaks</th>
-            <th className="py-2 pr-3">Job</th>
-            <th className="py-2 pr-3">Worked</th>
-            <th className="py-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.data?.entries.map((e) => (
-            <tr key={e.id} className="border-b border-slate-900">
-              <td className="py-2 pr-3">{fmtD(e.clockIn)}</td>
-              <td className="py-2 pr-3 font-mono">{fmtT(e.clockIn)}</td>
-              <td className="py-2 pr-3 font-mono">{e.clockOut ? fmtT(e.clockOut) : "open"}</td>
-              <td className="py-2 pr-3 text-xs text-slate-400">
-                {e.breaks.length === 0
-                  ? "—"
-                  : e.breaks
-                      .map(
-                        (b) =>
-                          `${b.autoDeducted ? "auto " : ""}${b.paid ? "paid" : "unpaid"} ${
-                            b.endAt
-                              ? Math.round((+new Date(b.endAt) - +new Date(b.startAt)) / 60000) + "m"
-                              : "open"
-                          }`,
-                      )
-                      .join(", ")}
-              </td>
-              <td className="py-2 pr-3">{e.job?.name ?? "—"}</td>
-              <td className="py-2 pr-3 font-mono">
-                {hrs(e.workedMinutes)}
-                {e.edited && (
-                  <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300">
-                    edited
-                  </span>
-                )}
-              </td>
-              <td className="py-2 text-right">
-                {e.clockOut && (
-                  <button
-                    onClick={() => setEditing(e)}
-                    className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
-                  >
-                    fix times
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {list.data?.entries.length === 0 && (
-            <tr><td colSpan={7} className="py-6 text-center text-slate-500">No entries in range.</td></tr>
-          )}
-        </tbody>
-      </table>
+      {list.isLoading && (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      )}
 
-      {msg && <p className="text-sm text-slate-300">{msg}</p>}
+      {!list.isLoading && entries.length === 0 && (
+        <Card>
+          <CardContent className="py-4 text-center text-sm text-muted-foreground">
+            No entries in range.
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Mobile: stacked cards */}
+      {entries.length > 0 && (
+        <div className="flex flex-col gap-3 sm:hidden">
+          {entries.map((e) => (
+            <Card key={e.id}>
+              <CardContent className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{fmtD(e.clockIn)}</span>
+                  {e.edited && (
+                    <Badge className="border-transparent bg-amber-500/15 text-amber-300">
+                      Edited
+                    </Badge>
+                  )}
+                  <span className="ml-auto font-mono text-sm">{hrs(e.workedMinutes)}</span>
+                </div>
+                <div className="font-mono text-sm text-muted-foreground">
+                  {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : "open"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Breaks: {breaksLabel(e)}
+                  {e.job && <> · {e.job.name}</>}
+                </div>
+                {e.clockOut && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-1 min-h-11 self-start"
+                    onClick={() => setEditing(e)}
+                  >
+                    <Pencil /> Fix times
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Desktop: table */}
+      {entries.length > 0 && (
+        <div className="hidden sm:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Day</TableHead>
+                <TableHead>In</TableHead>
+                <TableHead>Out</TableHead>
+                <TableHead>Breaks</TableHead>
+                <TableHead>Job</TableHead>
+                <TableHead>Worked</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell>{fmtD(e.clockIn)}</TableCell>
+                  <TableCell className="font-mono">{fmtT(e.clockIn)}</TableCell>
+                  <TableCell className="font-mono">{e.clockOut ? fmtT(e.clockOut) : "open"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{breaksLabel(e)}</TableCell>
+                  <TableCell>{e.job?.name ?? "—"}</TableCell>
+                  <TableCell className="font-mono">
+                    {hrs(e.workedMinutes)}
+                    {e.edited && (
+                      <Badge className="ml-2 border-transparent bg-amber-500/15 text-amber-300">
+                        Edited
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {e.clockOut && (
+                      <Button variant="secondary" size="sm" onClick={() => setEditing(e)}>
+                        <Pencil /> Fix times
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
       {editing && (
-        <EditDialog
+        <EditEntryDialog
           entry={editing}
           onClose={() => setEditing(null)}
-          onDone={(m) => {
-            setMsg(m);
+          onDone={() => {
             setEditing(null);
             qc.invalidateQueries({ queryKey: ["my-hours"] });
           }}
         />
       )}
-      <Link href="/clock" className="text-sm text-slate-500 underline">← back to clock</Link>
-    </Shell>
+    </Container>
   );
 }
 
-function EditDialog({
+function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+  return (
+    <textarea
+      data-slot="textarea"
+      className={cn(
+        "flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function EditEntryDialog({
   entry,
   onClose,
   onDone,
 }: {
   entry: EntryRow;
   onClose: () => void;
-  onDone: (msg: string) => void;
+  onDone: () => void;
 }) {
   const toLocal = (iso: string | null) =>
     iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
@@ -177,7 +289,6 @@ function EditDialog({
   const [cout, setCout] = useState(toLocal(entry.clockOut));
   const [reason, setReason] = useState("");
   const [asCorrection, setAsCorrection] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -194,61 +305,76 @@ function EditDialog({
       await apiPatch(`/entries/${entry.id}`, { clockIn, clockOut, reason });
       return "Times updated (flagged as edited).";
     },
-    onSuccess: onDone,
-    onError: (e) =>
-      setErr(
-        e instanceof ApiError
-          ? ((e.body as { error?: string })?.error ?? `error ${e.status}`)
-          : "failed",
-      ),
+    onSuccess: (m) => {
+      toast.success(m);
+      onDone();
+    },
+    onError: (e) => toast.error(errMsg(e)),
   });
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 p-5">
-        <h2 className="font-semibold">Fix times · {fmtD(entry.clockIn)}</h2>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Clock in
-          <input type="datetime-local" value={cin} onChange={(e) => setCin(e.target.value)}
-            className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Clock out
-          <input type="datetime-local" value={cout} onChange={(e) => setCout(e.target.value)}
-            className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Reason (required)
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. forgot to clock out"
-            className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100" />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-slate-400">
-          <input type="checkbox" checked={asCorrection} onChange={(e) => setAsCorrection(e.target.checked)} />
-          Send as correction request (manager approves) instead of direct edit
-        </label>
-        {err && <p className="text-sm text-rose-400">{err}</p>}
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="rounded bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700">Cancel</button>
-          <button
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Fix times</DialogTitle>
+          <DialogDescription>{fmtD(entry.clockIn)}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="edit-clock-in">Clock in</Label>
+              <Input
+                id="edit-clock-in"
+                type="datetime-local"
+                value={cin}
+                onChange={(e) => setCin(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="edit-clock-out">Clock out</Label>
+              <Input
+                id="edit-clock-out"
+                type="datetime-local"
+                value={cout}
+                onChange={(e) => setCout(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="edit-reason">Reason (required)</Label>
+            <Textarea
+              id="edit-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. forgot to clock out"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+            <Label htmlFor="edit-as-correction" className="flex flex-col items-start gap-1">
+              Send as correction request
+              <span className="text-xs font-normal text-muted-foreground">
+                A manager approves before times change
+              </span>
+            </Label>
+            <Switch
+              id="edit-as-correction"
+              checked={asCorrection}
+              onCheckedChange={setAsCorrection}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
             onClick={() => submit.mutate()}
             disabled={reason.trim().length < 3 || submit.isPending}
-            className="rounded bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
           >
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex max-w-3xl flex-col gap-5">
-        <h1 className="text-xl font-semibold">My hours</h1>
-        {children}
-      </div>
-    </main>
+            {submit.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

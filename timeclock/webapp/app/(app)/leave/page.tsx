@@ -1,10 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import * as React from "react";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Send } from "lucide-react";
 
 interface Mine {
   balances: Record<string, number>;
@@ -19,11 +36,26 @@ interface Mine {
   }[];
 }
 
+const LEAVE_TYPES = ["annual", "sick", "bereavement", "alt_holiday", "unpaid"];
+
+const STATUS_BADGE: Record<string, string> = {
+  approved: "border-transparent bg-emerald-500/15 text-emerald-300",
+  rejected: "border-transparent bg-rose-500/15 text-rose-300",
+};
+
+const errMsg = (e: unknown) =>
+  e instanceof ApiError
+    ? ((e.body as { error?: string })?.error ?? `Error ${e.status}`)
+    : "Request failed";
+
+function Container({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
+}
+
 export default function LeavePage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const [form, setForm] = useState({ type: "annual", startDate: "", endDate: "", hours: "8", note: "" });
-  const [msg, setMsg] = useState<string | null>(null);
 
   const mine = useQuery({
     queryKey: ["leave-mine"],
@@ -41,108 +73,161 @@ export default function LeavePage() {
         note: form.note || undefined,
       }),
     onSuccess: () => {
-      setMsg("Requested — awaiting approval.");
+      toast.success("Requested — awaiting approval.");
       qc.invalidateQueries({ queryKey: ["leave-mine"] });
     },
     onError: (e) =>
-      setMsg(
+      toast.error(
         e instanceof ApiError && (e.body as { error?: string })?.error === "insufficient_balance"
           ? `Not enough balance (${(e.body as { available?: number }).available?.toFixed(1)}h available).`
-          : "Request failed.",
+          : errMsg(e),
       ),
   });
 
-  if (isLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
+  if (isLoading)
+    return (
+      <Container>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </Container>
+    );
+
   if (!session)
-    return <Shell><p className="text-slate-400">Not signed in — <Link className="underline" href="/pin">PIN sign-in</Link>.</p></Shell>;
+    return (
+      <Container>
+        <Card>
+          <CardContent className="flex flex-col items-start gap-3">
+            <p className="text-sm text-muted-foreground">You are not signed in.</p>
+            <Button asChild variant="secondary">
+              <Link href="/pin">PIN sign-in</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </Container>
+    );
+
+  const requests = mine.data?.requests ?? [];
 
   return (
-    <Shell>
+    <Container>
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {mine.isLoading && (
+          <>
+            <Skeleton className="h-20" />
+            <Skeleton className="h-20" />
+          </>
+        )}
         {Object.entries(mine.data?.balances ?? {}).map(([type, hours]) => (
-          <div key={type} className="rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3">
-            <div className="text-xs uppercase text-slate-500">{type.replace("_", " ")}</div>
-            <div className="font-mono text-xl">{hours.toFixed(1)}h</div>
-          </div>
+          <Card key={type}>
+            <CardContent className="flex flex-col gap-1">
+              <span className="text-xs uppercase text-muted-foreground">{type.replace("_", " ")}</span>
+              <span className="font-mono text-xl">{hours.toFixed(1)}h</span>
+            </CardContent>
+          </Card>
         ))}
       </section>
 
-      <section className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm">
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Type
-          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
-            className="rounded bg-slate-800 px-3 py-2 text-slate-100">
-            {["annual", "sick", "bereavement", "alt_holiday", "unpaid"].map((t) => <option key={t}>{t}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          From
-          <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-            className="rounded bg-slate-800 px-3 py-2 text-slate-100" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          To
-          <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-            className="rounded bg-slate-800 px-3 py-2 text-slate-100" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Hours
-          <input inputMode="decimal" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })}
-            className="w-20 rounded bg-slate-800 px-3 py-2 text-slate-100" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Note
-          <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}
-            className="rounded bg-slate-800 px-3 py-2 text-slate-100" />
-        </label>
-        <button
-          onClick={() => submit.mutate()}
-          disabled={!form.startDate || submit.isPending}
-          className="rounded-lg bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
-        >
-          Request leave
-        </button>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Request leave</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="leave-type">Type</Label>
+              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                <SelectTrigger id="leave-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEAVE_TYPES.map((t) => (
+                    <SelectItem key={t} value={t} className="capitalize">
+                      {t.replace("_", " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="leave-hours">Hours</Label>
+              <Input
+                id="leave-hours"
+                inputMode="decimal"
+                value={form.hours}
+                onChange={(e) => setForm({ ...form, hours: e.target.value })}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="leave-from">From</Label>
+              <Input
+                id="leave-from"
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="leave-to">To</Label>
+              <Input
+                id="leave-to"
+                type="date"
+                value={form.endDate}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+              />
+            </div>
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <Label htmlFor="leave-note">Note</Label>
+              <Input
+                id="leave-note"
+                value={form.note}
+                onChange={(e) => setForm({ ...form, note: e.target.value })}
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+          <Button
+            onClick={() => submit.mutate()}
+            disabled={!form.startDate || submit.isPending}
+            className="self-start"
+          >
+            <Send /> {submit.isPending ? "Requesting…" : "Request leave"}
+          </Button>
+        </CardContent>
+      </Card>
 
-      {msg && <p className="text-sm text-slate-300">{msg}</p>}
-
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
-            <th className="py-2 pr-3">Type</th><th className="py-2 pr-3">Dates</th>
-            <th className="py-2 pr-3">Hours</th><th className="py-2">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {mine.data?.requests.map((r) => (
-            <tr key={r.id} className="border-b border-slate-900">
-              <td className="py-2 pr-3">{r.type}</td>
-              <td className="py-2 pr-3">{r.startDate} → {r.endDate}</td>
-              <td className="py-2 pr-3 font-mono">{r.hours}</td>
-              <td className="py-2">
-                <span className={`rounded px-2 py-0.5 text-xs ${
-                  r.status === "approved" ? "bg-emerald-500/20 text-emerald-300"
-                  : r.status === "rejected" ? "bg-rose-500/20 text-rose-300"
-                  : "bg-slate-700 text-slate-300"}`}>
-                  {r.status}
-                </span>
-              </td>
-            </tr>
+      <Card>
+        <CardHeader>
+          <CardTitle>My requests</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col divide-y divide-border">
+          {mine.isLoading && (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-11 w-full" />
+              <Skeleton className="h-11 w-full" />
+            </div>
+          )}
+          {!mine.isLoading && requests.length === 0 && (
+            <p className="py-1 text-sm text-muted-foreground">No leave requests yet.</p>
+          )}
+          {requests.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
+              <span className="font-medium capitalize">{r.type.replace("_", " ")}</span>
+              <span className="text-sm text-muted-foreground">
+                {r.startDate} → {r.endDate}
+              </span>
+              <span className="font-mono text-sm">{r.hours}h</span>
+              <Badge variant="secondary" className={cn("ml-auto capitalize", STATUS_BADGE[r.status])}>
+                {r.status}
+              </Badge>
+            </div>
           ))}
-        </tbody>
-      </table>
-      <Link href="/clock" className="text-sm text-slate-500 underline">← clock</Link>
-    </Shell>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex max-w-3xl flex-col gap-5">
-        <h1 className="text-xl font-semibold">Leave</h1>
-        {children}
-      </div>
-    </main>
+        </CardContent>
+      </Card>
+    </Container>
   );
 }

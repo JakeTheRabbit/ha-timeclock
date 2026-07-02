@@ -1,10 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Check, CircleHelp, Download, RefreshCw, Save, TriangleAlert, X } from "lucide-react";
 import { apiGet, api, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Pragmatic v1 config surface: the validated settings document as editable
@@ -15,7 +26,6 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const [text, setText] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
   const isAdmin = session?.employee.role === "admin";
 
   const current = useQuery({
@@ -29,18 +39,37 @@ export default function SettingsPage() {
   }, [current.data]);
 
   const save = useMutation({
-    mutationFn: () =>
-      api("/admin/settings", { method: "PATCH", body: text }),
+    mutationFn: () => api("/admin/settings", { method: "PATCH", body: text }),
     onSuccess: () => {
-      setMsg("Saved (audited).");
+      toast.success("Settings saved (audited).");
       qc.invalidateQueries({ queryKey: ["settings"] });
     },
     onError: (e) =>
-      setMsg(e instanceof ApiError ? "Rejected: invalid settings document." : "Save failed."),
+      toast.error(
+        e instanceof ApiError
+          ? `Rejected (${e.status}): invalid settings document.`
+          : "Save failed.",
+      ),
   });
 
-  if (isLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
-  if (!isAdmin) return <Shell><p className="text-rose-400">Admin role required.</p></Shell>;
+  if (isLoading)
+    return (
+      <Container>
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-80 w-full" />
+      </Container>
+    );
+
+  if (!isAdmin)
+    return (
+      <Container>
+        <Card>
+          <CardContent>
+            <p className="text-sm text-destructive">Admin role required.</p>
+          </CardContent>
+        </Card>
+      </Container>
+    );
 
   let parseError: string | null = null;
   try {
@@ -50,33 +79,36 @@ export default function SettingsPage() {
   }
 
   return (
-    <Shell>
-      <p className="text-sm text-slate-400">
-        Overtime thresholds/multipliers, rounding, break auto-deduct, pay-period anchor,
-        auto-clockout, notifications (HA + SMTP), anti-fraud (geofence / IP allowlist /
-        photo-on-punch). Server validates; every save is audited.
-      </p>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        spellCheck={false}
-        rows={28}
-        className="w-full rounded-lg border border-slate-800 bg-slate-900 p-4 font-mono text-xs text-slate-100"
-      />
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => save.mutate()}
-          disabled={!!parseError || save.isPending}
-          className="rounded-lg bg-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
-        >
-          Save settings
-        </button>
-        {parseError && <span className="text-xs text-rose-400">JSON: {parseError}</span>}
-        {msg && <span className="text-sm text-slate-400">{msg}</span>}
-      </div>
+    <Container>
       <IntegrationSection />
-      <Link href="/manager" className="text-sm text-slate-500 underline">← manager</Link>
-    </Shell>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Advanced</CardTitle>
+          <CardDescription>
+            Raw settings document: overtime thresholds/multipliers, rounding, break
+            auto-deduct, pay-period anchor, auto-clockout, notifications (HA + SMTP),
+            anti-fraud (geofence / IP allowlist / photo-on-punch). Server validates;
+            every save is audited.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            spellCheck={false}
+            rows={28}
+            className="w-full rounded-md border border-input bg-background p-3 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          />
+          {parseError && <p className="text-xs text-destructive">JSON: {parseError}</p>}
+          <div>
+            <Button onClick={() => save.mutate()} disabled={!!parseError || save.isPending}>
+              <Save /> Save settings
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </Container>
   );
 }
 
@@ -99,7 +131,6 @@ interface IntegrationInfo {
  */
 function IntegrationSection() {
   const qc = useQueryClient();
-  const [msg, setMsg] = useState<string | null>(null);
   const info = useQuery({
     queryKey: ["integration"],
     queryFn: () => apiGet<IntegrationInfo>("/admin/integration"),
@@ -108,104 +139,117 @@ function IntegrationSection() {
   const install = useMutation({
     mutationFn: () => api("/admin/integration/install", { method: "POST" }),
     onSuccess: () => {
-      setMsg("Installed. If this is the first install, restart Home Assistant once.");
+      toast.success("Installed. If this is the first install, restart Home Assistant once.");
       qc.invalidateQueries({ queryKey: ["integration"] });
     },
-    onError: () => setMsg("Install failed — is the add-on updated with config access?"),
+    onError: (e) =>
+      toast.error(
+        e instanceof ApiError
+          ? `Install failed (${e.status}) — is the add-on updated with config access?`
+          : "Install failed — is the add-on updated with config access?",
+      ),
   });
+
   const rotate = useMutation({
     mutationFn: () => api("/admin/integration/key", { method: "POST" }),
     onSuccess: () => {
-      setMsg("New API key generated; installed package updated.");
+      toast.success("New API key generated; installed package updated.");
       qc.invalidateQueries({ queryKey: ["integration"] });
     },
+    onError: (e) =>
+      toast.error(
+        e instanceof ApiError
+          ? `Error ${e.status}: ${JSON.stringify(e.body)}`
+          : "Request failed",
+      ),
   });
 
   const s = info.data?.status;
-  const Badge = ({ ok, label }: { ok: boolean | null; label: string }) => (
-    <span
-      className={`rounded px-2 py-0.5 text-xs ${
-        ok ? "bg-emerald-900 text-emerald-300" : ok === false ? "bg-rose-950 text-rose-400" : "bg-slate-800 text-slate-400"
-      }`}
-    >
-      {label}: {ok ? "yes" : ok === false ? "no" : "?"}
-    </span>
-  );
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <h2 className="font-semibold">Home Assistant integration</h2>
-      <p className="text-sm text-slate-400">
-        Installs the <span className="font-mono">timeclock-card</span> dashboard card and
-        per-employee clock in/out scripts (used by Android companion-app widgets).
-      </p>
-      {s && (
-        <div className="flex flex-wrap gap-2">
-          <Badge ok={s.haConfigMounted} label="config access" />
-          <Badge ok={s.packageInstalled} label="package" />
-          <Badge ok={s.cardInstalled} label="card" />
-          <Badge ok={s.packagesIncludeConfigured} label="packages include" />
-        </div>
-      )}
-      {s?.packagesIncludeConfigured === false && (
-        <p className="rounded bg-amber-950/60 p-2 text-xs text-amber-300">
-          Add this line under <span className="font-mono">homeassistant:</span> in
-          configuration.yaml, then restart HA once:{" "}
-          <span className="font-mono">packages: !include_dir_named packages</span>
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={() => install.mutate()}
-          disabled={install.isPending}
-          className="rounded-lg bg-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
-        >
-          {s?.packageInstalled ? "Reinstall / refresh" : "Install into Home Assistant"}
-        </button>
-        <button
-          onClick={() => rotate.mutate()}
-          disabled={rotate.isPending}
-          className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700 disabled:opacity-40"
-        >
-          {info.data?.apiKey ? "Rotate API key" : "Generate API key"}
-        </button>
-        {msg && <span className="text-sm text-slate-400">{msg}</span>}
-      </div>
-      <details className="text-xs text-slate-400">
-        <summary className="cursor-pointer">Setup checklist & manual YAML</summary>
-        <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>Click Install (writes packages/timeclock.yaml + www/timeclock-card.js).</li>
-          <li>
-            First time only: ensure the packages include line above exists, add the dashboard
-            resource <span className="font-mono">/local/timeclock-card.js</span> (JavaScript
-            module), and restart HA.
-          </li>
-          <li>
-            Add the card: type <span className="font-mono">custom:timeclock-card</span> in a
-            manual card.
-          </li>
-          <li>
-            Android widget: Companion app → Settings → Widgets → add a Template/Actions
-            widget that runs <span className="font-mono">script.timeclock_&lt;name&gt;_toggle</span>.
-          </li>
-        </ol>
-        {info.data?.packageYaml && (
-          <pre className="mt-2 max-h-64 overflow-auto rounded bg-slate-950 p-3 font-mono">
-            {info.data.packageYaml}
-          </pre>
+    <Card>
+      <CardHeader>
+        <CardTitle>Home Assistant integration</CardTitle>
+        <CardDescription>
+          Installs the <span className="font-mono">timeclock-card</span> dashboard card and
+          per-employee clock in/out scripts (used by Android companion-app widgets).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {info.isLoading && <Skeleton className="h-6 w-full" />}
+        {s && (
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge ok={s.haConfigMounted} label="Config access" />
+            <StatusBadge ok={s.packageInstalled} label="Package" />
+            <StatusBadge ok={s.cardInstalled} label="Card" />
+            <StatusBadge ok={s.packagesIncludeConfigured} label="Packages include" />
+          </div>
         )}
-      </details>
-    </section>
+        {s?.packagesIncludeConfigured === false && (
+          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            <p>
+              Add this line under <span className="font-mono">homeassistant:</span> in
+              configuration.yaml, then restart HA once:{" "}
+              <span className="font-mono">packages: !include_dir_named packages</span>
+            </p>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => install.mutate()} disabled={install.isPending}>
+            <Download />
+            {s?.packageInstalled ? "Reinstall / refresh" : "Install into Home Assistant"}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => rotate.mutate()}
+            disabled={rotate.isPending}
+          >
+            <RefreshCw />
+            {info.data?.apiKey ? "Rotate API key" : "Generate API key"}
+          </Button>
+        </div>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer py-2 font-medium">
+            Setup checklist &amp; manual YAML
+          </summary>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>Click Install (writes packages/timeclock.yaml + www/timeclock-card.js).</li>
+            <li>
+              First time only: ensure the packages include line above exists, add the dashboard
+              resource <span className="font-mono">/local/timeclock-card.js</span> (JavaScript
+              module), and restart HA.
+            </li>
+            <li>
+              Add the card: type <span className="font-mono">custom:timeclock-card</span> in a
+              manual card.
+            </li>
+            <li>
+              Android widget: Companion app → Settings → Widgets → add a Template/Actions
+              widget that runs <span className="font-mono">script.timeclock_&lt;name&gt;_toggle</span>.
+            </li>
+          </ol>
+          {info.data?.packageYaml && (
+            <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-background p-3 font-mono">
+              {info.data.packageYaml}
+            </pre>
+          )}
+        </details>
+      </CardContent>
+    </Card>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function StatusBadge({ ok, label }: { ok: boolean | null; label: string }) {
+  const Icon = ok ? Check : ok === false ? X : CircleHelp;
   return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
-        <h1 className="text-xl font-semibold">Admin · Settings</h1>
-        {children}
-      </div>
-    </main>
+    <Badge variant={ok ? "secondary" : ok === false ? "destructive" : "outline"}>
+      <Icon />
+      {label}
+    </Badge>
   );
+}
+
+function Container({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
 }
