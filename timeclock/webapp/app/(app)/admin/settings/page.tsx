@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, CircleHelp, Download, RefreshCw, Save, TriangleAlert, X } from "lucide-react";
-import { apiGet, api, ApiError } from "@/lib/api-client";
+import { apiGet, apiPatch, api, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -81,6 +84,8 @@ export default function SettingsPage() {
   return (
     <Container>
       <IntegrationSection />
+
+      <PresenceSection />
 
       <Card>
         <CardHeader>
@@ -237,6 +242,209 @@ function IntegrationSection() {
         </details>
       </CardContent>
     </Card>
+  );
+}
+
+interface PresenceConfig {
+  enabled: boolean;
+  pollSec: number;
+  arriveGraceSec: number;
+  departGraceSec: number;
+  ssid: string;
+  notifyOnArrive: boolean;
+  notifyOnDepart: boolean;
+}
+
+const PRESENCE_DEFAULTS: PresenceConfig = {
+  enabled: false,
+  pollSec: 60,
+  arriveGraceSec: 120,
+  departGraceSec: 300,
+  ssid: "",
+  notifyOnArrive: true,
+  notifyOnDepart: true,
+};
+
+/**
+ * Friendly editor for the settings.presence block. Grace windows are shown in
+ * minutes (stored as seconds) since sub-minute anti-flap tuning isn't useful
+ * here; the raw poll interval lives under an Advanced disclosure. Per-person
+ * notify service + presence entity are edited on the Employees page.
+ */
+function PresenceSection() {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiGet<{ settings: { presence?: Partial<PresenceConfig> } }>("/admin/settings"),
+  });
+
+  const [form, setForm] = useState<PresenceConfig>(PRESENCE_DEFAULTS);
+
+  useEffect(() => {
+    const p = settings.data?.settings.presence;
+    if (p) setForm({ ...PRESENCE_DEFAULTS, ...p });
+  }, [settings.data]);
+
+  const save = useMutation({
+    mutationFn: (presence: PresenceConfig) =>
+      apiPatch("/admin/settings", { presence }),
+    onSuccess: () => {
+      toast.success("Presence reminders saved (audited).");
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: (e) =>
+      toast.error(
+        e instanceof ApiError
+          ? `Rejected (${e.status}): invalid presence settings.`
+          : "Save failed.",
+      ),
+  });
+
+  const set = <K extends keyof PresenceConfig>(key: K, value: PresenceConfig[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  // Grace windows edited in minutes; stored as seconds.
+  const minutesField = (secs: number) => (secs / 60).toString();
+  const parseMinutes = (v: string) => Math.max(0, Math.round((Number(v) || 0) * 60));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Presence reminders</CardTitle>
+        <CardDescription>
+          Nudge staff to clock in when their phone joins the work network and to clock out when
+          it leaves. Notify-only — this never punches automatically. Each person&apos;s notify
+          service and presence entity are set on the{" "}
+          <span className="font-medium text-foreground">Employees</span> page.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {settings.isLoading && <Skeleton className="h-40 w-full" />}
+        {!settings.isLoading && (
+          <>
+            <ToggleRow
+              id="presence-enabled"
+              label="Notify staff to clock in/out based on presence"
+              checked={form.enabled}
+              onCheckedChange={(v) => set("enabled", v)}
+            />
+
+            <div className="flex flex-col gap-4 border-t border-border pt-4">
+              <ToggleRow
+                id="presence-arrive"
+                label="Remind to clock in on arrival"
+                checked={form.notifyOnArrive}
+                onCheckedChange={(v) => set("notifyOnArrive", v)}
+              />
+              <ToggleRow
+                id="presence-depart"
+                label="Remind to clock out on departure"
+                checked={form.notifyOnDepart}
+                onCheckedChange={(v) => set("notifyOnDepart", v)}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="presence-arrive-grace">Arrival grace (minutes)</Label>
+                <Input
+                  id="presence-arrive-grace"
+                  type="number"
+                  min={0}
+                  step="0.5"
+                  inputMode="decimal"
+                  value={minutesField(form.arriveGraceSec)}
+                  onChange={(e) => set("arriveGraceSec", parseMinutes(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  How long they must stay on-network before we send a clock-in reminder.
+                </p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="presence-depart-grace">Departure grace (minutes)</Label>
+                <Input
+                  id="presence-depart-grace"
+                  type="number"
+                  min={0}
+                  step="0.5"
+                  inputMode="decimal"
+                  value={minutesField(form.departGraceSec)}
+                  onChange={(e) => set("departGraceSec", parseMinutes(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  How long they must be gone before we send a clock-out reminder.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+              <Label htmlFor="presence-ssid">Wi-Fi SSID</Label>
+              <Input
+                id="presence-ssid"
+                value={form.ssid}
+                placeholder="e.g. WorkWiFi"
+                onChange={(e) => set("ssid", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Only needed if you picked a Wi-Fi SSID sensor as someone&apos;s presence entity.
+              </p>
+            </div>
+
+            <details className="border-t border-border pt-4 text-sm">
+              <summary className="cursor-pointer py-1 font-medium text-muted-foreground">
+                Advanced
+              </summary>
+              <div className="mt-3 flex flex-col gap-1.5">
+                <Label htmlFor="presence-poll">Poll interval (seconds)</Label>
+                <Input
+                  id="presence-poll"
+                  type="number"
+                  min={15}
+                  max={600}
+                  inputMode="numeric"
+                  value={form.pollSec.toString()}
+                  onChange={(e) =>
+                    set("pollSec", Math.min(600, Math.max(15, Number(e.target.value) || 0)))
+                  }
+                  className="sm:max-w-40"
+                />
+                <p className="text-xs text-muted-foreground">
+                  How often we check Home Assistant for presence (15–600s). Takes effect after
+                  the add-on restarts.
+                </p>
+              </div>
+            </details>
+
+            <div>
+              <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
+                <Save /> Save presence settings
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ToggleRow({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <Label htmlFor={id} className="cursor-pointer font-normal">
+        {label}
+      </Label>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
   );
 }
 

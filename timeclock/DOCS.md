@@ -61,10 +61,16 @@ an immutable, hash-chained audit trail.
 
 Admin → Settings → **Home Assistant integration → Install** writes:
 
-- `packages/timeclock.yaml` — `rest_command.timeclock_punch` + one
-  `script.timeclock_<name>_toggle` per employee (regenerated automatically when
-  the roster or API key changes, and on every add-on start).
+- `packages/timeclock.yaml` — one `script.timeclock_<name>_toggle` per employee
+  (regenerated automatically when the roster changes, and on every add-on start).
+- `packages/timeclock_handlers.yaml` — `rest_command.timeclock_punch` plus one
+  static automation (`timeclock_notify_actions`) that turns presence-reminder
+  button taps into punches (changes only on API-key rotation / add-on upgrade).
 - `www/timeclock-card.js` — the dashboard card (auto-updated on add-on updates).
+
+Splitting the package into two files keeps reloads narrow: a roster edit only
+touches the scripts file (→ `script.reload`), while the static handlers file is
+left alone (→ no `rest_command` / `automation` reload). See below.
 
 One-time HA prep:
 
@@ -98,9 +104,10 @@ recorder:
       - sensor.timeclock_history
 ```
 
-The installer reloads only `rest_command` and `script` (never
-`homeassistant.reload_all`) and only when the generated package actually
-changed — it will not disturb other automations on the box.
+The installer reloads granularly and only when the file in question actually
+changed: `script.reload` when the scripts file changes; `rest_command.reload` +
+`automation.reload` when the handlers file changes. It never calls
+`homeassistant.reload_all`, so it will not disturb other automations on the box.
 
 ## Android widget (companion app)
 
@@ -116,6 +123,56 @@ the kiosk (supply runs, lunch, working off-site):
 One tap toggles their clock; the punch is audited exactly like a kiosk punch
 (times recorded, visible in Manager → audit). `sensor.timeclock_<name>` can be
 added as a widget too, to see current status at a glance.
+
+## Presence reminders (clock in/out when you arrive/leave)
+
+People forget to punch. When someone's phone joins the work network, the add-on
+can send them a **"Clock in?"** notification with a one-tap button; when they
+leave, a **"Clock out?"** one. It is **notify-only — it never auto-punches**.
+The human always taps (Callum kept control on purpose: supply runs, stepping
+out mid-shift, and working off-site shouldn't be clocked automatically). No tap,
+no punch.
+
+**Set it up:**
+
+1. **Admin → Settings → Presence reminders** → turn it **on**. Tune the poll
+   interval and the arrive/depart grace here if the defaults (poll 60 s, arrive
+   120 s, depart 300 s) don't suit.
+2. **Admin → Employees** → for each person set their **Notify service** and
+   **Presence entity** from the dropdowns. Both are populated live from HA
+   (device trackers, `person`, connectivity/presence binary sensors, Wi-Fi/SSID
+   sensors for presence; `notify.*` services for the notification). A person with
+   either field blank is simply skipped.
+3. If you're using a **Wi-Fi SSID sensor** for presence (e.g. the companion
+   app's "SSID" sensor), also fill in the **Wi-Fi SSID** field in Settings so
+   "present" means *connected to that network* rather than *connected to any*.
+
+**How it detects presence:**
+
+- `device_tracker` / `person` → present when `home`.
+- `binary_sensor` (connectivity/presence/occupancy) → present when `on`.
+- Wi-Fi/SSID `sensor` → present when the state matches the configured **SSID**
+  (or, with no SSID set, any connected-looking network name).
+
+A change only counts once it has held for the **arrive/depart grace**, so a Wi-Fi
+blip or a quick drive-by doesn't fire a reminder. A reminder is sent only when
+the punch is actually needed — arriving while clocked out, or leaving while
+clocked in. Cold start (add-on boot) never notifies; it silently adopts whatever
+state it first sees.
+
+**Where it runs:** the whole poller lives **inside the add-on** — there is no
+per-employee HA automation, so adding, removing, or editing staff never reloads
+anything on the facility box. The integration installs exactly **one** tiny
+static automation, `timeclock_notify_actions`, whose only job is to turn a
+notification button tap into a punch. It changes only on API-key rotation /
+add-on upgrade, so it never disturbs the box's other automations.
+
+**Tap-to-clock flow:** the notification arrives in the **HA Companion app**;
+tapping **Clock in** / **Clock out** fires the `timeclock_notify_actions`
+automation (action id `TIMECLOCK_IN__<id>` / `TIMECLOCK_OUT__<id>`), which calls
+`rest_command.timeclock_punch` back into the add-on. The punch is dispatched
+through the same code path as a kiosk punch — auto-deduct, audit, and anti-fraud
+settings all apply.
 
 ## External API (what the widgets call)
 
