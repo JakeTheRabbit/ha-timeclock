@@ -1,4 +1,5 @@
 import { buildTimeclockSummary, type EmployeeSummary } from "./summary";
+import { getSettings } from "@/server/domain/settings";
 
 /**
  * Publishes time-clock state into Home Assistant via the Supervisor Core API
@@ -49,12 +50,17 @@ const h = (min: number) => Math.round((min / 60) * 100) / 100;
 export async function pushTimeclockStates(opts?: { includeHistory?: boolean }): Promise<void> {
   if (!process.env.SUPERVISOR_TOKEN) return; // dev/test: nothing to talk to
   const summary = await buildTimeclockSummary();
+  const { locale } = await getSettings();
   const anyoneIn = summary.clockedIn > 0;
 
   await setState("sensor.timeclock_summary", String(summary.clockedIn), {
     friendly_name: "Time Clock",
     icon: "mdi:clock-check-outline",
     unit_of_measurement: "people",
+    // Display locale for the dashboard card (dependency-free, reads it off the
+    // sensor). Stable when idle so the recorder still dedupes pushes.
+    locale: locale.bcp47,
+    currency: locale.currency,
     // `updated` drives the card's live tickers; omit while idle so repeated
     // pushes are attribute-identical and the recorder stores nothing new.
     ...(anyoneIn ? { updated: summary.updated } : {}),

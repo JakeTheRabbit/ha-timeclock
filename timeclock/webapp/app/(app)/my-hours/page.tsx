@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { useLocale } from "@/lib/format";
+import { useT, type MessageKey, type TVars } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,28 +64,28 @@ function rangeDates(r: Range): { from: Date; to: Date } {
   return { from: start, to };
 }
 
-const fmtT = (s: string) => new Date(s).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" });
-const fmtD = (s: string) => new Date(s).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
+type TFn = (key: MessageKey, vars?: TVars) => string;
+
 const hrs = (min: number | null) => (min == null ? "—" : (min / 60).toFixed(2) + "h");
 
-const breaksLabel = (e: EntryRow) =>
+const breaksLabel = (e: EntryRow, t: TFn) =>
   e.breaks.length === 0
     ? "—"
     : e.breaks
         .map(
           (b) =>
-            `${b.autoDeducted ? "auto " : ""}${b.paid ? "paid" : "unpaid"} ${
+            `${b.autoDeducted ? t("myHours.breakAuto") : ""}${b.paid ? t("myHours.breakPaid") : t("myHours.breakUnpaid")} ${
               b.endAt
                 ? Math.round((+new Date(b.endAt) - +new Date(b.startAt)) / 60000) + "m"
-                : "open"
+                : t("myHours.breakOpen")
             }`,
         )
         .join(", ");
 
-const errMsg = (e: unknown) =>
+const errMsg = (e: unknown, t: TFn) =>
   e instanceof ApiError
-    ? ((e.body as { error?: string })?.error ?? `Error ${e.status}`)
-    : "Request failed";
+    ? ((e.body as { error?: string })?.error ?? t("toast.errorStatus", { status: e.status }))
+    : t("toast.requestFailed");
 
 function Container({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
@@ -92,6 +94,10 @@ function Container({ children }: { children: React.ReactNode }) {
 export default function MyHoursPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
+  const t = useT();
+  const loc = useLocale();
+  const fmtT = (s: string) => loc.time(s);
+  const fmtD = (s: string) => loc.date(s);
   const [range, setRange] = useState<Range>("week");
   const [editing, setEditing] = useState<EntryRow | null>(null);
 
@@ -121,9 +127,9 @@ export default function MyHoursPage() {
       <Container>
         <Card>
           <CardContent className="flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground">You are not signed in.</p>
+            <p className="text-sm text-muted-foreground">{t("common.notSignedIn")}</p>
             <Button asChild variant="secondary">
-              <Link href="/pin">PIN sign-in</Link>
+              <Link href="/pin">{t("common.pinSignIn")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -137,15 +143,21 @@ export default function MyHoursPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
           <TabsList>
-            {(["today", "week", "fortnight"] as Range[]).map((r) => (
+            {(
+              [
+                ["today", "myHours.rangeToday"],
+                ["week", "myHours.rangeWeek"],
+                ["fortnight", "myHours.rangeFortnight"],
+              ] as [Range, MessageKey][]
+            ).map(([r, key]) => (
               <TabsTrigger key={r} value={r} className="capitalize">
-                {r}
+                {t(key)}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
         <span className="ml-auto text-sm text-muted-foreground">
-          Total: <span className="font-mono text-foreground">{hrs(totalMin)}</span>
+          {t("myHours.total")} <span className="font-mono text-foreground">{hrs(totalMin)}</span>
         </span>
       </div>
 
@@ -159,7 +171,7 @@ export default function MyHoursPage() {
       {!list.isLoading && entries.length === 0 && (
         <Card>
           <CardContent className="py-4 text-center text-sm text-muted-foreground">
-            No entries in range.
+            {t("myHours.noEntries")}
           </CardContent>
         </Card>
       )}
@@ -174,16 +186,16 @@ export default function MyHoursPage() {
                   <span className="font-medium">{fmtD(e.clockIn)}</span>
                   {e.edited && (
                     <Badge className="border-transparent bg-amber-500/15 text-amber-300">
-                      Edited
+                      {t("myHours.edited")}
                     </Badge>
                   )}
                   <span className="ml-auto font-mono text-sm">{hrs(e.workedMinutes)}</span>
                 </div>
                 <div className="font-mono text-sm text-muted-foreground">
-                  {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : "open"}
+                  {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Breaks: {breaksLabel(e)}
+                  {t("myHours.breaks", { value: breaksLabel(e, t) })}
                   {e.job && <> · {e.job.name}</>}
                 </div>
                 {e.clockOut && (
@@ -193,7 +205,7 @@ export default function MyHoursPage() {
                     className="mt-1 min-h-11 self-start"
                     onClick={() => setEditing(e)}
                   >
-                    <Pencil /> Fix times
+                    <Pencil /> {t("myHours.fixTimes")}
                   </Button>
                 )}
               </CardContent>
@@ -208,12 +220,12 @@ export default function MyHoursPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Day</TableHead>
-                <TableHead>In</TableHead>
-                <TableHead>Out</TableHead>
-                <TableHead>Breaks</TableHead>
-                <TableHead>Job</TableHead>
-                <TableHead>Worked</TableHead>
+                <TableHead>{t("myHours.colDay")}</TableHead>
+                <TableHead>{t("myHours.colIn")}</TableHead>
+                <TableHead>{t("myHours.colOut")}</TableHead>
+                <TableHead>{t("myHours.colBreaks")}</TableHead>
+                <TableHead>{t("myHours.colJob")}</TableHead>
+                <TableHead>{t("myHours.colWorked")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -222,21 +234,21 @@ export default function MyHoursPage() {
                 <TableRow key={e.id}>
                   <TableCell>{fmtD(e.clockIn)}</TableCell>
                   <TableCell className="font-mono">{fmtT(e.clockIn)}</TableCell>
-                  <TableCell className="font-mono">{e.clockOut ? fmtT(e.clockOut) : "open"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{breaksLabel(e)}</TableCell>
-                  <TableCell>{e.job?.name ?? "—"}</TableCell>
+                  <TableCell className="font-mono">{e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{breaksLabel(e, t)}</TableCell>
+                  <TableCell>{e.job?.name ?? t("common.none")}</TableCell>
                   <TableCell className="font-mono">
                     {hrs(e.workedMinutes)}
                     {e.edited && (
                       <Badge className="ml-2 border-transparent bg-amber-500/15 text-amber-300">
-                        Edited
+                        {t("myHours.edited")}
                       </Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
                     {e.clockOut && (
                       <Button variant="secondary" size="sm" onClick={() => setEditing(e)}>
-                        <Pencil /> Fix times
+                        <Pencil /> {t("myHours.fixTimes")}
                       </Button>
                     )}
                   </TableCell>
@@ -283,6 +295,8 @@ function EditEntryDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useT();
+  const loc = useLocale();
   const toLocal = (iso: string | null) =>
     iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
   const [cin, setCin] = useState(toLocal(entry.clockIn));
@@ -300,29 +314,29 @@ function EditEntryDialog({
           requested: { clockIn, clockOut },
           reason,
         });
-        return "Correction requested — awaiting approval.";
+        return t("toast.correctionRequested");
       }
       await apiPatch(`/entries/${entry.id}`, { clockIn, clockOut, reason });
-      return "Times updated (flagged as edited).";
+      return t("toast.timesUpdated");
     },
     onSuccess: (m) => {
       toast.success(m);
       onDone();
     },
-    onError: (e) => toast.error(errMsg(e)),
+    onError: (e) => toast.error(errMsg(e, t)),
   });
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Fix times</DialogTitle>
-          <DialogDescription>{fmtD(entry.clockIn)}</DialogDescription>
+          <DialogTitle>{t("myHours.dialogTitle")}</DialogTitle>
+          <DialogDescription>{loc.date(entry.clockIn)}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-clock-in">Clock in</Label>
+              <Label htmlFor="edit-clock-in">{t("myHours.clockIn")}</Label>
               <Input
                 id="edit-clock-in"
                 type="datetime-local"
@@ -331,7 +345,7 @@ function EditEntryDialog({
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-clock-out">Clock out</Label>
+              <Label htmlFor="edit-clock-out">{t("myHours.clockOut")}</Label>
               <Input
                 id="edit-clock-out"
                 type="datetime-local"
@@ -341,19 +355,19 @@ function EditEntryDialog({
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-reason">Reason (required)</Label>
+            <Label htmlFor="edit-reason">{t("myHours.reasonLabel")}</Label>
             <Textarea
               id="edit-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. forgot to clock out"
+              placeholder={t("myHours.reasonPlaceholder")}
             />
           </div>
           <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
             <Label htmlFor="edit-as-correction" className="flex flex-col items-start gap-1">
-              Send as correction request
+              {t("myHours.asCorrection")}
               <span className="text-xs font-normal text-muted-foreground">
-                A manager approves before times change
+                {t("myHours.asCorrectionHint")}
               </span>
             </Label>
             <Switch
@@ -365,13 +379,13 @@ function EditEntryDialog({
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={() => submit.mutate()}
             disabled={reason.trim().length < 3 || submit.isPending}
           >
-            {submit.isPending ? "Saving…" : "Save"}
+            {submit.isPending ? t("common.saving") : t("common.save")}
           </Button>
         </DialogFooter>
       </DialogContent>

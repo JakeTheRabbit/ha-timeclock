@@ -21,23 +21,24 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/hooks/use-session";
 import { apiPost } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { useT, type MessageKey } from "@/lib/i18n";
 // roleAtLeast is a pure function (its hono/server imports are type-only), so
 // it is safe to use from a client component.
 import { roleAtLeast } from "@/server/auth/rbac";
 
-/** Known route -> top-bar title. Unknown routes fall back to the last segment. */
-const ROUTE_TITLES: Record<string, string> = {
-  "/": "Home",
-  "/clock": "Clock",
-  "/pin": "Sign in",
-  "/my-hours": "My hours",
-  "/roster": "Roster",
-  "/leave": "Leave",
-  "/manager": "Manager",
-  "/manager/audit": "Audit",
-  "/manager/pay-periods": "Pay periods",
-  "/admin/employees": "Employees",
-  "/admin/settings": "Settings",
+/** Known route -> top-bar title message key. Unknown routes fall back to the last segment. */
+const ROUTE_TITLES: Record<string, MessageKey> = {
+  "/": "route.home",
+  "/clock": "route.clock",
+  "/pin": "route.pin",
+  "/my-hours": "route.myHours",
+  "/roster": "route.roster",
+  "/leave": "route.leave",
+  "/manager": "route.manager",
+  "/manager/audit": "route.managerAudit",
+  "/manager/pay-periods": "route.managerPayPeriods",
+  "/admin/employees": "route.adminEmployees",
+  "/admin/settings": "route.adminSettings",
 };
 
 /**
@@ -53,27 +54,27 @@ function parentOf(pathname: string): string {
   return PARENT_ROUTES[pathname] ?? "/";
 }
 
-function titleOf(pathname: string): string {
+function titleOf(pathname: string, t: (key: MessageKey) => string): string {
   const known = ROUTE_TITLES[pathname];
-  if (known) return known;
+  if (known) return t(known);
   const segment = pathname.split("/").filter(Boolean).pop() ?? "";
   return segment
     ? segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ")
-    : "Home";
+    : t("route.home");
 }
 
 interface NavTab {
   href: string;
   /** Section prefix used for active-state matching ("/" matches exactly). */
   match: string;
-  label: string;
+  label: MessageKey;
   icon: LucideIcon;
 }
 
 const BASE_TABS: NavTab[] = [
-  { href: "/", match: "/", label: "Home", icon: House },
-  { href: "/clock", match: "/clock", label: "Clock", icon: Timer },
-  { href: "/my-hours", match: "/my-hours", label: "Hours", icon: ChartColumn },
+  { href: "/", match: "/", label: "nav.home", icon: House },
+  { href: "/clock", match: "/clock", label: "nav.clock", icon: Timer },
+  { href: "/my-hours", match: "/my-hours", label: "nav.hours", icon: ChartColumn },
 ];
 
 export interface AppShellProps {
@@ -90,28 +91,29 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
   const queryClient = useQueryClient();
   const { employee } = useSession();
   const [signingOut, setSigningOut] = React.useState(false);
+  const t = useT();
 
   if (variant === "bare") {
     return <>{children}</>;
   }
 
   const isHome = pathname === "/";
-  const pageTitle = title ?? titleOf(pathname);
+  const pageTitle = title ?? titleOf(pathname, t);
 
   const tabs: NavTab[] = employee
     ? [
         ...BASE_TABS,
         ...(roleAtLeast(employee.role, "lead")
-          ? [{ href: "/manager", match: "/manager", label: "Manager", icon: Users }]
+          ? [{ href: "/manager", match: "/manager", label: "nav.manager", icon: Users } as NavTab]
           : []),
         ...(roleAtLeast(employee.role, "admin")
           ? [
               {
                 href: "/admin/employees",
                 match: "/admin",
-                label: "Admin",
+                label: "nav.admin",
                 icon: Settings2,
-              },
+              } as NavTab,
             ]
           : []),
       ]
@@ -121,11 +123,11 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
     setSigningOut(true);
     try {
       await apiPost("/auth/logout");
-      toast.success("Signed out");
+      toast.success(t("toast.signedOut"));
     } catch {
       // Still refetch the session below so the UI reflects reality, but never
       // fail silently (the original app's cardinal sin).
-      toast.error("Sign out failed — check your connection.");
+      toast.error(t("toast.signOutFailed"));
     } finally {
       await queryClient.invalidateQueries({ queryKey: ["session"] });
       setSigningOut(false);
@@ -142,7 +144,7 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Back"
+              aria-label={t("common.back")}
               onClick={() => router.push(parentOf(pathname))}
             >
               <ChevronLeft className="size-6" />
@@ -167,7 +169,7 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Sign out"
+                aria-label={t("common.signOut")}
                 disabled={signingOut}
                 onClick={handleSignOut}
               >
@@ -210,7 +212,7 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
               >
                 <Icon className="size-6" aria-hidden="true" />
                 <span className="text-[11px] font-medium leading-none">
-                  {tab.label}
+                  {t(tab.label)}
                 </span>
               </Link>
             );

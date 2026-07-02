@@ -1,5 +1,5 @@
 name: Time Clock
-version: "0.4.2"
+version: "0.5.0"
 slug: timeclock
 description: >-
   Employee time-clock system (kiosk-first) with an immutable, hash-chained audit
