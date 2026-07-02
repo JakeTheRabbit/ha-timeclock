@@ -3,6 +3,7 @@ import { getDb } from "@/db/client";
 import { payPeriods, type PayPeriod } from "@/db/schema";
 import { getSettings } from "@/server/domain/settings";
 import { nzWallToInstant } from "@/server/domain/roster/compare";
+import { nzDateOf } from "@/server/domain/holidays/stat-pay";
 
 /**
  * Pay period containing an instant (convention: [start, end)), or null if no
@@ -32,9 +33,9 @@ export async function periodWindowContaining(at: Date): Promise<{ startAt: Date;
   const dayMs = 24 * 3600_000;
   const approxPeriods = Math.floor((at.getTime() - anchor.getTime()) / (lengthDays * dayMs));
   cursor = new Date(anchor.getTime() + approxPeriods * lengthDays * dayMs);
-  // Correct to exact NZ-midnight boundaries around `at`.
-  const toISO = (d: Date) =>
-    new Intl.DateTimeFormat("en-CA", { timeZone: "Pacific/Auckland" }).format(d);
+  // Correct to exact NZ-midnight boundaries around `at`. nzDateOf is
+  // locale-proof (formatToParts) — bare en-CA .format() breaks on small-ICU.
+  const toISO = (d: Date) => nzDateOf(d);
   let startAt = nzWallToInstant(toISO(cursor), 0);
   while (startAt.getTime() > at.getTime()) {
     startAt = nzWallToInstant(toISO(new Date(startAt.getTime() - lengthDays * dayMs)), 0);
