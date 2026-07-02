@@ -283,8 +283,15 @@ export const admin = new Hono<AppEnv>()
     const actor = c.get("auth")!;
     const apiKey = randomBytes(24).toString("hex");
     await updateSettings({ integration: { apiKey } }, actor.employee.id);
-    await refreshIntegrationIfInstalled();
-    return c.json({ apiKey });
+    // Rotation changes the rest_command file; if HA can't reload it, the new
+    // key won't reach HA until a restart — tell the admin so punches don't
+    // silently start failing.
+    const reload = await refreshIntegrationIfInstalled();
+    return c.json({
+      apiKey,
+      // null = not installed (nothing to reload); otherwise did rest_command reload?
+      haReloaded: reload === null ? null : reload.restCommandOk,
+    });
   })
 
   // Write packages/timeclock.yaml + www/timeclock-card.js into HA config and
