@@ -2,11 +2,9 @@
 
 ## Reporting a vulnerability
 
-Do not open a public issue for a security problem. Report it privately:
-
-- Use GitHub's private vulnerability reporting (the Security tab, Report a
-  vulnerability), or
-- Email demo@example.com with the details.
+Do not open a public issue for a security problem. Report it privately through
+GitHub's private vulnerability reporting: the repository's Security tab, then
+"Report a vulnerability".
 
 Include what you found, how to reproduce it, and the impact as you see it. You
 will get an acknowledgement, and a fix or a plan, as fast as is practical for a

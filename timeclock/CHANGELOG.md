@@ -32,7 +32,7 @@ Wi-Fi, and to clock out when they leave.
   person, connectivity binary_sensor, or a companion-app Wi-Fi SSID sensor),
   toggle on in Admin → Settings → Presence reminders. When someone arrives an
   actionable **"Clock in?"** notification lands on their phone; when they
-  leave, **"Clock out?"**. One tap punches. Never auto-punches (Callum keeps
+  leave, **"Clock out?"**. One tap punches. Never auto-punches (staff keep
   control); arrive/depart grace periods absorb Wi-Fi flapping; a cold start
   never fires a burst of notifications.
 - Runs **inside the add-on** (polls HA, debounces, sends the notifications) —
@@ -87,7 +87,7 @@ Feedback round 2 (Ben): "it's crashing HA", "navigation and UI suck",
 
 ## 0.2.0 — HA SSO, dashboard card, Android widgets
 
-Feedback round (Callum): clock in/out from anywhere, accounts that follow the
+Feedback round: clock in/out from anywhere, accounts that follow the
 HA login, PINs that work on any computer.
 
 - **HA SSO**: an employee whose *HA username* matches the HA account opening
