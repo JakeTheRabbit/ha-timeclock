@@ -1,0 +1,171 @@
+"use client";
+
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import {
+  CalendarDays,
+  ChartColumn,
+  IdCard,
+  KeyRound,
+  Settings2,
+  Timer,
+  TreePalm,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { apiGet } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
+import { useSession } from "@/hooks/use-session";
+import { roleAtLeast } from "@/server/auth/rbac";
+
+interface Whoami {
+  ha: { haUserId: string; displayName: string | null } | null;
+  employee: { id: string; displayName: string; role: string } | null;
+  bootstrapped: boolean;
+}
+
+function Tile({
+  href,
+  icon: Icon,
+  label,
+  description,
+  primary,
+}: {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  description: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "flex min-h-24 flex-col justify-center gap-1 rounded-xl border p-4 shadow-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99]",
+        primary
+          ? "col-span-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80"
+          : "border-border bg-card hover:bg-accent",
+      )}
+    >
+      <Icon className={cn(primary ? "size-8" : "size-6")} aria-hidden="true" />
+      <span className={cn("font-semibold", primary && "text-lg")}>{label}</span>
+      <span
+        className={cn(
+          "text-sm",
+          primary ? "text-primary-foreground/80" : "text-muted-foreground",
+        )}
+      >
+        {description}
+      </span>
+    </Link>
+  );
+}
+
+export default function Home() {
+  // useSession performs HA SSO server-side: an HA account linked to an
+  // employee is signed in the moment this page loads, on any device.
+  const { session, isLoading } = useSession();
+  const whoami = useQuery({
+    queryKey: ["whoami"],
+    queryFn: () => apiGet<Whoami>("/auth/whoami"),
+  });
+
+  const role = session?.employee.role ?? "employee";
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+      {isLoading ? (
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="col-span-2 h-28 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+        </div>
+      ) : session ? (
+        <nav aria-label="Sections" className="grid grid-cols-2 gap-3">
+          <Tile
+            href="/clock"
+            icon={Timer}
+            label="Clock in / out"
+            description="Punch the clock, breaks, jobs"
+            primary
+          />
+          <Tile
+            href="/my-hours"
+            icon={ChartColumn}
+            label="My hours"
+            description="Timesheet and totals"
+          />
+          <Tile
+            href="/roster"
+            icon={CalendarDays}
+            label="Roster"
+            description="Who's on and when"
+          />
+          <Tile
+            href="/leave"
+            icon={TreePalm}
+            label="Leave"
+            description="Request and track leave"
+          />
+          {roleAtLeast(role, "lead") && (
+            <Tile
+              href="/manager"
+              icon={Users}
+              label="Manager"
+              description="Approvals, audit, pay periods"
+            />
+          )}
+          {roleAtLeast(role, "admin") && (
+            <>
+              <Tile
+                href="/admin/employees"
+                icon={IdCard}
+                label="Employees"
+                description="Staff, roles and PINs"
+              />
+              <Tile
+                href="/admin/settings"
+                icon={Settings2}
+                label="Settings"
+                description="Site rules and devices"
+              />
+            </>
+          )}
+        </nav>
+      ) : (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
+            <Timer className="size-10 text-primary" aria-hidden="true" />
+            <div className="space-y-1">
+              <p className="font-semibold">Not signed in</p>
+              <p className="text-sm text-muted-foreground">
+                Employee time clock · immutable audit
+              </p>
+            </div>
+            <Button asChild size="lg" className="w-full max-w-xs">
+              <Link href="/pin">
+                <KeyRound aria-hidden="true" /> Kiosk sign-in
+              </Link>
+            </Button>
+            {whoami.data?.ha && !whoami.data.employee && whoami.data.bootstrapped && (
+              <p className="text-sm text-muted-foreground">
+                Your Home Assistant account (
+                <span className="font-mono">
+                  {whoami.data.ha.displayName ?? whoami.data.ha.haUserId}
+                </span>
+                ) isn&apos;t linked to an employee yet — an admin can link it under
+                Admin → Employees, then you&apos;ll be signed in automatically.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
