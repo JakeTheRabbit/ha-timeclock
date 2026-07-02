@@ -1,15 +1,21 @@
 import { holidayOn } from "./nz-public-holidays";
 import { APP_TZ } from "@/lib/tz";
 
-/** Pacific/Auckland calendar date (YYYY-MM-DD) for an instant. */
+/**
+ * Pacific/Auckland calendar date (YYYY-MM-DD) for an instant. Assembled from
+ * formatToParts, NOT locale formatting: small-ICU Node builds (Alpine in the
+ * add-on image) silently fall back en-CA -> en root, whose M/D/YYYY output
+ * corrupted every downstream date parse ("Invalid time value" in ha-push).
+ */
 export function nzDateOf(at: Date): string {
-  const p = new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: APP_TZ,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(at);
-  return p; // en-CA formats as YYYY-MM-DD
+  }).formatToParts(at);
+  const p = (t: string) => parts.find((x) => x.type === t)?.value.padStart(2, "0") ?? "00";
+  return `${p("year").padStart(4, "0")}-${p("month")}-${p("day")}`;
 }
 
 export interface StatDayAssessment {

@@ -22,8 +22,12 @@ RUN npm run build
 FROM ${BUILD_FROM}
 
 # Node runtime + bundled PostgreSQL 16 (Alpine 3.24 provides both).
+# icu-data-full: Alpine's nodejs ships English-only ICU; without full data
+# Intl locale lookups (en-NZ/en-CA) fall back to en-root and change output
+# formats — human-facing dates/times render wrong (US-style) without it.
 RUN apk add --no-cache \
       nodejs \
+      icu-data-full \
       postgresql16 \
       postgresql16-client \
       postgresql16-contrib \
