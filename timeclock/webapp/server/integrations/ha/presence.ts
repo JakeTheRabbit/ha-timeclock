@@ -12,7 +12,7 @@ import { slugify } from "./summary";
  * to the person's companion app. The single static handler automation in the
  * package turns the button tap back into a punch (see install.ts).
  *
- * It never auto-punches — Callum asked to keep control (supply runs etc.); this
+ * It never auto-punches — staff asked to keep control (supply runs etc.); this
  * only nudges, the human taps.
  */
 

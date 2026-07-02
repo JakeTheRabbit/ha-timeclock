@@ -2,8 +2,8 @@ import type { Notifier, NotifyMessage } from "./index";
 import { getSettings } from "@/server/domain/settings";
 
 /**
- * SMTP transport — INTERFACE WIRED, DELIVERY DEFERRED. Credentials
- * (demo@example.com) are supplied later; until settings.notifications.smtp is
+ * SMTP transport — INTERFACE WIRED, DELIVERY DEFERRED. Credentials and a
+ * from-address are supplied later; until settings.notifications.smtp is
  * enabled + configured this transport reports not-configured. When creds land,
  * implement delivery here (nodemailer) — callers do not change.
  */
