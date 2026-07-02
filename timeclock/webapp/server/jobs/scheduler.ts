@@ -4,6 +4,7 @@ import { runDbBackup } from "./db-backup";
 import { runAccrual } from "@/server/domain/leave/accrual";
 import { pushTimeclockStates } from "@/server/integrations/ha/state-push";
 import { refreshIntegrationIfInstalled } from "@/server/integrations/ha/install";
+import { startPresenceWatcher } from "@/server/integrations/ha/presence";
 import { APP_TZ } from "@/lib/tz";
 
 let started = false;
@@ -31,6 +32,11 @@ export function startScheduler(): void {
   // If the HA package/card were installed, refresh them on boot so add-on
   // updates ship new card versions and the scripts track the roster.
   void safe("ha-integration-refresh", () => refreshIntegrationIfInstalled());
+
+  // Presence-based clock reminders (self-paced interval; no-op unless enabled
+  // in settings and running under HA). Sends notifications from inside the
+  // add-on — no per-employee HA automations.
+  startPresenceWatcher();
 
   console.log("[cron] scheduler started (auto-clockout 15m, backup 02:30, accrual Mon 03:00, ha-push 5m)");
 }

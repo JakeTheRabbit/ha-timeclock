@@ -19,11 +19,19 @@ import {
 } from "@/server/integrations/ha/install";
 import { schedulePush } from "@/server/integrations/ha/state-push";
 
+// Optional string that clears to NULL when blank (unset a mapping from the UI).
+const optClearable = z
+  .union([z.string().max(200), z.null()])
+  .optional()
+  .transform((v) => (v === "" || v === undefined ? undefined : v));
+
 const createEmployeeSchema = z.object({
   displayName: z.string().min(1).max(100),
   role: z.enum(ROLES).default("employee"),
   haUsername: z.string().min(1).max(200).nullish(),
   pin: z.string().min(4).max(12).optional(),
+  notifyService: optClearable,
+  presenceEntity: optClearable,
 });
 
 const updateEmployeeSchema = z.object({
@@ -31,6 +39,9 @@ const updateEmployeeSchema = z.object({
   role: z.enum(ROLES).optional(),
   active: z.boolean().optional(),
   haUsername: z.string().min(1).max(200).nullable().optional(),
+  // "" clears the mapping -> stored as NULL.
+  notifyService: z.union([z.string().max(200), z.null()]).optional().transform((v) => (v === "" ? null : v)),
+  presenceEntity: z.union([z.string().max(200), z.null()]).optional().transform((v) => (v === "" ? null : v)),
 });
 
 const setPinSchema = z.object({ pin: z.string().min(4).max(12) });
@@ -48,6 +59,8 @@ export const admin = new Hono<AppEnv>()
         active: employees.active,
         haUsername: employees.haUsername,
         hasPin: employees.pinHash,
+        notifyService: employees.notifyService,
+        presenceEntity: employees.presenceEntity,
         createdAt: employees.createdAt,
       })
       .from(employees)
@@ -70,6 +83,8 @@ export const admin = new Hono<AppEnv>()
         role: fields.role,
         haUsername: fields.haUsername ?? null,
         pinHash: pin ? hashPin(pin) : null,
+        notifyService: fields.notifyService ?? null,
+        presenceEntity: fields.presenceEntity ?? null,
       })
       .returning();
 
@@ -297,5 +312,59 @@ export const admin = new Hono<AppEnv>()
       return c.json({ ok: true, status });
     } catch (e) {
       return c.json({ error: "install_failed", detail: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  })
+
+  // Discovery for the presence-reminder pickers: candidate presence entities
+  // (device_tracker / person / connectivity binary_sensor / wifi-SSID sensor)
+  // and available notify.* services, read live from HA. Empty when not running
+  // under HA (no SUPERVISOR_TOKEN) — the UI falls back to free-text.
+  .get("/ha-entities", async (c) => {
+    const token = process.env.SUPERVISOR_TOKEN;
+    if (!token) return c.json({ available: false, presence: [], notify: [] });
+    const auth = { headers: { authorization: `Bearer ${token}` } };
+    try {
+      const [statesRes, servicesRes] = await Promise.all([
+        fetch("http://supervisor/core/api/states", auth),
+        fetch("http://supervisor/core/api/services", auth),
+      ]);
+      const states = (await statesRes.json()) as {
+        entity_id: string;
+        state: string;
+        attributes?: { friendly_name?: string; device_class?: string };
+      }[];
+      const services = (await servicesRes.json()) as {
+        domain: string;
+        services: Record<string, unknown>;
+      }[];
+
+      const presence = states
+        .filter((s) => {
+          const d = s.entity_id.split(".")[0];
+          if (d === "device_tracker" || d === "person") return true;
+          if (d === "binary_sensor") {
+            const dc = s.attributes?.device_class;
+            return dc === "connectivity" || dc === "presence" || dc === "occupancy";
+          }
+          if (d === "sensor") return /wifi|ssid|connection|network/i.test(s.entity_id);
+          return false;
+        })
+        .map((s) => ({
+          entity_id: s.entity_id,
+          name: s.attributes?.friendly_name ?? s.entity_id,
+          state: s.state,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const notify = (services.find((s) => s.domain === "notify")?.services
+        ? Object.keys(services.find((s) => s.domain === "notify")!.services)
+        : []
+      )
+        .map((k) => `notify.${k}`)
+        .sort();
+
+      return c.json({ available: true, presence, notify });
+    } catch (e) {
+      return c.json({ available: false, presence: [], notify: [], error: String(e) });
     }
   });
