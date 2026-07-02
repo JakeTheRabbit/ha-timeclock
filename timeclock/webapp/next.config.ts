@@ -13,10 +13,15 @@ const INGRESS_BASE = "/ha-ingress";
 const nextConfig: NextConfig = {
   output: "standalone",
   basePath: INGRESS_BASE,
-  // pdfkit must stay an external runtime require: bundling it rewrites
-  // __dirname and breaks its .afm font loading (ENOENT Helvetica.afm in
-  // standalone). External = NFT traces the whole package incl. font data.
-  serverExternalPackages: ["pdfkit"],
+  // These packages must stay external runtime requires (not bundled by webpack).
+  // pdfkit: bundling rewrites __dirname and breaks its .afm font loading (ENOENT
+  //   Helvetica.afm in standalone).
+  // date-holidays: loads its rule/locale data (data/holidays.json etc.) via
+  //   package-relative paths at runtime; when webpack bundles it those files are
+  //   dropped and it is NOT copied into .next/standalone/node_modules, so every
+  //   non-NZ holiday lookup throws MODULE_NOT_FOUND. Marking it external makes
+  //   NFT trace the whole package (incl. its data) into the standalone output.
+  serverExternalPackages: ["pdfkit", "date-holidays"],
   // Ingress is same-origin behind HA; no asset CDN. basePath already prefixes
   // /_next assets, so we do NOT set assetPrefix (would double-prefix).
   reactStrictMode: true,

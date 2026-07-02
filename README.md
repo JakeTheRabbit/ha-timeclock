@@ -66,12 +66,22 @@ Audit and corrections
 - Self-service edits that require a reason and stay flagged forever
 - Correction requests with a manager approval queue
 
-New Zealand payroll rules
-- Overtime engine (daily over 8 hours, weekly over 40, configurable multipliers)
-- Computed public holidays including Mondayisation and Matariki
-- Statutory-day time and a half, and alternative-holiday assessment
+Localization
+- Country presets: New Zealand, USA, UK, Ireland, Canada, Australia, Germany,
+  France, Switzerland, Sweden, Denmark. Pick one to set week start, currency,
+  date/number format, timezone, and a starting overtime rule (all editable)
+- Public holidays per country and region (state, province, canton, nation)
+- Locale-aware dates, times, numbers, and currency
+- UI language packs: English, German, French, Swedish, Danish (English fallback)
+- Tracks hours and exports them; it does not calculate income tax (that is your
+  payroll system's job)
+
+Payroll rules
+- Overtime engine (daily and weekly thresholds, configurable multipliers)
 - Punch rounding policies (report time only, raw punches never change)
-- Employment Relations Act break-compliance flags
+- New Zealand: computed public holidays with Mondayisation and Matariki,
+  statutory-day time and a half, alternative-holiday assessment, and Employment
+  Relations Act break-compliance flags
 
 Rostering and leave
 - Shifts, scheduled versus actual, late and no-show detection

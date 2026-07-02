@@ -21,6 +21,7 @@ import { apiGet } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/use-session";
 import { roleAtLeast } from "@/server/auth/rbac";
+import { useT } from "@/lib/i18n";
 
 interface Whoami {
   ha: { haUserId: string; displayName: string | null } | null;
@@ -73,6 +74,7 @@ export default function Home() {
     queryKey: ["whoami"],
     queryFn: () => apiGet<Whoami>("/auth/whoami"),
   });
+  const t = useT();
 
   const role = session?.employee.role ?? "employee";
 
@@ -91,34 +93,34 @@ export default function Home() {
           <Tile
             href="/clock"
             icon={Timer}
-            label="Clock in / out"
-            description="Punch the clock, breaks, jobs"
+            label={t("home.clock.label")}
+            description={t("home.clock.description")}
             primary
           />
           <Tile
             href="/my-hours"
             icon={ChartColumn}
-            label="My hours"
-            description="Timesheet and totals"
+            label={t("home.myHours.label")}
+            description={t("home.myHours.description")}
           />
           <Tile
             href="/roster"
             icon={CalendarDays}
-            label="Roster"
-            description="Who's on and when"
+            label={t("home.roster.label")}
+            description={t("home.roster.description")}
           />
           <Tile
             href="/leave"
             icon={TreePalm}
-            label="Leave"
-            description="Request and track leave"
+            label={t("home.leave.label")}
+            description={t("home.leave.description")}
           />
           {roleAtLeast(role, "lead") && (
             <Tile
               href="/manager"
               icon={Users}
-              label="Manager"
-              description="Approvals, audit, pay periods"
+              label={t("home.manager.label")}
+              description={t("home.manager.description")}
             />
           )}
           {roleAtLeast(role, "admin") && (
@@ -126,14 +128,14 @@ export default function Home() {
               <Tile
                 href="/admin/employees"
                 icon={IdCard}
-                label="Employees"
-                description="Staff, roles and PINs"
+                label={t("home.employees.label")}
+                description={t("home.employees.description")}
               />
               <Tile
                 href="/admin/settings"
                 icon={Settings2}
-                label="Settings"
-                description="Site rules and devices"
+                label={t("home.settings.label")}
+                description={t("home.settings.description")}
               />
             </>
           )}
@@ -143,24 +145,21 @@ export default function Home() {
           <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
             <Timer className="size-10 text-primary" aria-hidden="true" />
             <div className="space-y-1">
-              <p className="font-semibold">Not signed in</p>
+              <p className="font-semibold">{t("home.notSignedIn")}</p>
               <p className="text-sm text-muted-foreground">
-                Employee time clock · immutable audit
+                {t("home.tagline")}
               </p>
             </div>
             <Button asChild size="lg" className="w-full max-w-xs">
               <Link href="/pin">
-                <KeyRound aria-hidden="true" /> Kiosk sign-in
+                <KeyRound aria-hidden="true" /> {t("home.kioskSignIn")}
               </Link>
             </Button>
             {whoami.data?.ha && !whoami.data.employee && whoami.data.bootstrapped && (
               <p className="text-sm text-muted-foreground">
-                Your Home Assistant account (
-                <span className="font-mono">
-                  {whoami.data.ha.displayName ?? whoami.data.ha.haUserId}
-                </span>
-                ) isn&apos;t linked to an employee yet — an admin can link it under
-                Admin → Employees, then you&apos;ll be signed in automatically.
+                {t("home.notLinkedHint", {
+                  account: whoami.data.ha.displayName ?? whoami.data.ha.haUserId,
+                })}
               </p>
             )}
           </CardContent>

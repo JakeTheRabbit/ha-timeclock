@@ -19,6 +19,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  applyCountryPreset,
+  COUNTRIES,
+  type CountryCode,
+} from "@/server/domain/locale/countries";
 
 /**
  * Pragmatic v1 config surface: the validated settings document as editable
@@ -83,6 +95,8 @@ export default function SettingsPage() {
 
   return (
     <Container>
+      <LocaleSection />
+
       <IntegrationSection />
 
       <PresenceSection />
@@ -114,6 +128,268 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
     </Container>
+  );
+}
+
+interface LocaleConfig {
+  country: CountryCode;
+  language: "en" | "de" | "fr" | "sv" | "da";
+  bcp47: string;
+  currency: string;
+  weekStart: 0 | 1;
+  holidayRegion: string;
+  holidayPayMultiplier: number;
+}
+
+const LOCALE_DEFAULTS: LocaleConfig = {
+  country: "NZ",
+  language: "en",
+  bcp47: "en-NZ",
+  currency: "NZD",
+  weekStart: 1,
+  holidayRegion: "",
+  holidayPayMultiplier: 1,
+};
+
+const LANGUAGES: { value: LocaleConfig["language"]; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "de", label: "German (Deutsch)" },
+  { value: "fr", label: "French (Français)" },
+  { value: "sv", label: "Swedish (Svenska)" },
+  { value: "da", label: "Danish (Dansk)" },
+];
+
+/**
+ * Region and language presets. Choosing a country applies documented DEFAULTS
+ * (locale formatting, week start, currency, timezone, and a starting overtime
+ * rule) via applyCountryPreset — which is a pure function, safe to import in a
+ * client component. NZ keeps its tuned computed holiday engine + Holidays Act
+ * stat-pay; all other countries route holidays through date-holidays and use
+ * the worked-public-holiday premium below. Every derived field stays editable.
+ */
+function LocaleSection() {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiGet<{ settings: { locale?: Partial<LocaleConfig> } }>("/admin/settings"),
+  });
+
+  const [form, setForm] = useState<LocaleConfig>(LOCALE_DEFAULTS);
+
+  useEffect(() => {
+    const l = settings.data?.settings.locale;
+    if (l) setForm({ ...LOCALE_DEFAULTS, ...l });
+  }, [settings.data]);
+
+  // Applying a country preset patches locale.* AND overtime defaults.
+  const applyPreset = useMutation({
+    mutationFn: (country: CountryCode) =>
+      apiPatch("/admin/settings", applyCountryPreset(country)),
+    onSuccess: (_res, country) => {
+      toast.success(`Applied ${COUNTRIES[country].name} defaults.`);
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: (e) =>
+      toast.error(
+        e instanceof ApiError
+          ? `Rejected (${e.status}): could not apply country defaults.`
+          : "Could not apply country defaults.",
+      ),
+  });
+
+  // Editing an individual derived field only patches locale.* (never overtime).
+  const saveLocale = useMutation({
+    mutationFn: (patch: Partial<LocaleConfig>) =>
+      apiPatch("/admin/settings", { locale: patch }),
+    onSuccess: () => {
+      toast.success("Region settings saved (audited).");
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: (e) =>
+      toast.error(
+        e instanceof ApiError
+          ? `Rejected (${e.status}): invalid region settings.`
+          : "Save failed.",
+      ),
+  });
+
+  // Update local form immediately, persist the single changed field.
+  const setField = <K extends keyof LocaleConfig>(key: K, value: LocaleConfig[K]) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    saveLocale.mutate({ [key]: value } as Partial<LocaleConfig>);
+  };
+
+  const busy = applyPreset.isPending || saveLocale.isPending;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Region and language</CardTitle>
+        <CardDescription>
+          Pick a country to load documented defaults for date/number formatting, week start,
+          currency, timezone, public holidays, and a starting overtime rule. Every field below
+          stays editable.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {settings.isLoading && <Skeleton className="h-64 w-full" />}
+        {!settings.isLoading && (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="locale-country">Country</Label>
+              <Select
+                value={form.country}
+                onValueChange={(v) => applyPreset.mutate(v as CountryCode)}
+                disabled={busy}
+              >
+                <SelectTrigger id="locale-country">
+                  <SelectValue placeholder="Select a country" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.values(COUNTRIES)).map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Choosing a country applies its locale and overtime defaults. NZ keeps its built-in
+                holiday engine and statutory holiday pay; other countries use date-holidays.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="locale-language">Language</Label>
+                <Select
+                  value={form.language}
+                  onValueChange={(v) => setField("language", v as LocaleConfig["language"])}
+                  disabled={busy}
+                >
+                  <SelectTrigger id="locale-language">
+                    <SelectValue placeholder="Select a language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGES.map((l) => (
+                      <SelectItem key={l.value} value={l.value}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  UI translations, see docs. The interface is not translated yet.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="locale-weekstart">Week starts on</Label>
+                <Select
+                  value={form.weekStart.toString()}
+                  onValueChange={(v) => setField("weekStart", (Number(v) === 0 ? 0 : 1))}
+                  disabled={busy}
+                >
+                  <SelectTrigger id="locale-weekstart">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Monday</SelectItem>
+                    <SelectItem value="0">Sunday</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Used for calendar display. Note: weekly overtime is currently
+                  always calculated on a Monday–Sunday week regardless of this
+                  setting.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="locale-currency">Currency</Label>
+                <Input
+                  id="locale-currency"
+                  value={form.currency}
+                  placeholder="e.g. NZD"
+                  disabled={busy}
+                  onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                  onBlur={(e) => saveLocale.mutate({ currency: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  ISO 4217 code, display only. This is not tax or payroll software.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="locale-bcp47">Formatting locale</Label>
+                <Input
+                  id="locale-bcp47"
+                  value={form.bcp47}
+                  placeholder="e.g. en-NZ"
+                  disabled={busy}
+                  onChange={(e) => setForm((f) => ({ ...f, bcp47: e.target.value }))}
+                  onBlur={(e) => saveLocale.mutate({ bcp47: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  BCP-47 tag for date and number formatting (e.g. en-GB, de-DE, fr-FR).
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="locale-region">Holiday region</Label>
+                <Input
+                  id="locale-region"
+                  value={form.holidayRegion}
+                  placeholder="optional"
+                  disabled={busy}
+                  onChange={(e) => setForm((f) => ({ ...f, holidayRegion: e.target.value }))}
+                  onBlur={(e) => saveLocale.mutate({ holidayRegion: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional state / province / canton for public holidays — e.g. US state (CA),
+                  CA province (ON), CH canton (ZH), DE Bundesland (BY). Leave blank for
+                  country-level holidays only.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="locale-holidaypay">Worked-public-holiday premium</Label>
+                <Input
+                  id="locale-holidaypay"
+                  type="number"
+                  min={1}
+                  step="0.1"
+                  inputMode="decimal"
+                  value={form.holidayPayMultiplier.toString()}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      holidayPayMultiplier: Math.max(1, Number(e.target.value) || 1),
+                    }))
+                  }
+                  onBlur={(e) =>
+                    saveLocale.mutate({
+                      holidayPayMultiplier: Math.max(1, Number(e.target.value) || 1),
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  NZ uses its own statutory holiday pay; this applies to other countries. 1 = no
+                  premium.
+                </p>
+              </div>
+            </div>
+
+            <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+              Overtime and holiday defaults are starting points — verify them against your local
+              law, awards, or collective agreements before relying on them. This add-on does not
+              calculate income tax or withholding; that is your payroll system&apos;s job.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

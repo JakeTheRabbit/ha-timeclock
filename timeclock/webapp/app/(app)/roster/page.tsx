@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { useLocale } from "@/lib/format";
+import { useT, type MessageKey, type TVars } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,8 +56,10 @@ interface Compare {
 }
 interface Emp { id: string; displayName: string }
 
-const t = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+const fmtMin = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
+
+type TFn = (key: MessageKey, vars?: TVars) => string;
 
 const STATUS_BADGE: Record<Compare["shifts"][number]["status"], string> = {
   ok: "border-transparent bg-emerald-500/15 text-emerald-300",
@@ -65,10 +69,18 @@ const STATUS_BADGE: Record<Compare["shifts"][number]["status"], string> = {
   no_show: "border-transparent bg-rose-500/15 text-rose-300",
 };
 
-const errMsg = (e: unknown) =>
+const STATUS_KEY: Record<Compare["shifts"][number]["status"], MessageKey> = {
+  ok: "roster.statusOk",
+  in_progress: "roster.statusInProgress",
+  upcoming: "roster.statusUpcoming",
+  late: "roster.statusLate",
+  no_show: "roster.statusNoShow",
+};
+
+const errMsg = (e: unknown, t: TFn) =>
   e instanceof ApiError
-    ? ((e.body as { error?: string })?.error ?? `Error ${e.status}`)
-    : "Request failed";
+    ? ((e.body as { error?: string })?.error ?? t("toast.errorStatus", { status: e.status }))
+    : t("toast.requestFailed");
 
 function Container({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
@@ -77,6 +89,8 @@ function Container({ children }: { children: React.ReactNode }) {
 export default function RosterPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
+  const loc = useLocale();
+  const t = useT();
   const isLead = session && ["lead", "manager", "admin"].includes(session.employee.role);
   const [date, setDate] = useState(todayISO());
   const [form, setForm] = useState({ employeeId: "", start: "08:00", end: "16:30" });
@@ -130,20 +144,20 @@ export default function RosterPage() {
         endMin: toMin(form.end),
       }),
     onSuccess: () => {
-      toast.success("Shift added.");
+      toast.success(t("toast.shiftAdded"));
       qc.invalidateQueries();
     },
-    onError: (e) => toast.error(errMsg(e)),
+    onError: (e) => toast.error(errMsg(e, t)),
   });
 
   const cancel = useMutation({
     mutationFn: (id: string) => apiPost(`/roster/${id}/cancel`),
     onSuccess: () => {
-      toast.success("Shift cancelled.");
+      toast.success(t("toast.shiftCancelled"));
       setCancelTarget(null);
       qc.invalidateQueries();
     },
-    onError: (e) => toast.error(errMsg(e)),
+    onError: (e) => toast.error(errMsg(e, t)),
   });
 
   if (isLoading)
@@ -160,9 +174,9 @@ export default function RosterPage() {
       <Container>
         <Card>
           <CardContent className="flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground">You are not signed in.</p>
+            <p className="text-sm text-muted-foreground">{t("common.notSignedIn")}</p>
             <Button asChild variant="secondary">
-              <Link href="/pin">PIN sign-in</Link>
+              <Link href="/pin">{t("common.pinSignIn")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -174,7 +188,7 @@ export default function RosterPage() {
   return (
     <Container>
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={() => shiftWeek(-7)} aria-label="Previous week">
+        <Button variant="ghost" size="icon" onClick={() => shiftWeek(-7)} aria-label={t("roster.previousWeek")}>
           <ChevronLeft />
         </Button>
         <Input
@@ -182,29 +196,29 @@ export default function RosterPage() {
           value={date}
           onChange={(e) => setDate(e.target.value)}
           className="w-auto"
-          aria-label="Week starting date"
+          aria-label={t("roster.weekStartingDate")}
         />
-        <Button variant="ghost" size="icon" onClick={() => shiftWeek(7)} aria-label="Next week">
+        <Button variant="ghost" size="icon" onClick={() => shiftWeek(7)} aria-label={t("roster.nextWeek")}>
           <ChevronRight />
         </Button>
-        <span className="ml-auto text-sm text-muted-foreground">week of {week.from}</span>
+        <span className="ml-auto text-sm text-muted-foreground">{t("roster.weekOf", { date: week.from })}</span>
       </div>
 
       {isLead && (
         <Card>
           <CardHeader>
-            <CardTitle>Add shift · {date}</CardTitle>
+            <CardTitle>{t("roster.addShiftTitle", { date })}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex flex-col gap-2 sm:col-span-3">
-                <Label htmlFor="shift-employee">Employee</Label>
+                <Label htmlFor="shift-employee">{t("roster.employeeField")}</Label>
                 <Select
                   value={form.employeeId}
                   onValueChange={(v) => setForm({ ...form, employeeId: v })}
                 >
                   <SelectTrigger id="shift-employee">
-                    <SelectValue placeholder="Choose employee…" />
+                    <SelectValue placeholder={t("roster.chooseEmployee")} />
                   </SelectTrigger>
                   <SelectContent>
                     {staff.data?.employees.map((e) => (
@@ -216,7 +230,7 @@ export default function RosterPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="shift-start">Start</Label>
+                <Label htmlFor="shift-start">{t("roster.startField")}</Label>
                 <Input
                   id="shift-start"
                   type="time"
@@ -225,7 +239,7 @@ export default function RosterPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="shift-end">End</Label>
+                <Label htmlFor="shift-end">{t("roster.endField")}</Label>
                 <Input
                   id="shift-end"
                   type="time"
@@ -239,7 +253,7 @@ export default function RosterPage() {
                   onClick={() => add.mutate()}
                   disabled={!form.employeeId || add.isPending}
                 >
-                  <CalendarPlus /> {add.isPending ? "Adding…" : "Add shift"}
+                  <CalendarPlus /> {add.isPending ? t("roster.adding") : t("roster.addShift")}
                 </Button>
               </div>
             </div>
@@ -250,23 +264,23 @@ export default function RosterPage() {
       {isLead && compare.data && compare.data.shifts.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Scheduled vs actual · {date}</CardTitle>
+            <CardTitle>{t("roster.scheduledVsActual", { date })}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col divide-y divide-border">
             {compare.data.shifts.map((s) => (
               <div key={s.rosterId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
                 <span className="font-medium">{s.employeeName}</span>
                 <span className="font-mono text-sm text-muted-foreground">
-                  {t(s.startMin)}–{t(s.endMin)}
+                  {fmtMin(s.startMin)}–{fmtMin(s.endMin)}
                 </span>
                 <span className="font-mono text-sm text-muted-foreground">
                   {s.actualIn
-                    ? `in ${new Date(s.actualIn).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}`
-                    : "no punch"}
+                    ? t("roster.inAt", { time: loc.time(s.actualIn) })
+                    : t("roster.noPunch")}
                 </span>
                 <Badge variant="secondary" className={cn("ml-auto capitalize", STATUS_BADGE[s.status])}>
-                  {s.status.replace("_", " ")}
-                  {s.lateMin > 0 && ` +${s.lateMin}m`}
+                  {t(STATUS_KEY[s.status])}
+                  {s.lateMin > 0 && ` ${t("roster.lateSuffix", { n: s.lateMin })}`}
                 </Badge>
               </div>
             ))}
@@ -276,7 +290,7 @@ export default function RosterPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{isLead ? "All shifts this week" : "My shifts this week"}</CardTitle>
+          <CardTitle>{isLead ? t("roster.allShiftsThisWeek") : t("roster.myShiftsThisWeek")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col divide-y divide-border">
           {(isLead ? all.isLoading : mine.isLoading) && (
@@ -286,14 +300,14 @@ export default function RosterPage() {
             </div>
           )}
           {shifts.length === 0 && !(isLead ? all.isLoading : mine.isLoading) && (
-            <p className="py-1 text-sm text-muted-foreground">No shifts.</p>
+            <p className="py-1 text-sm text-muted-foreground">{t("roster.noShifts")}</p>
           )}
           {shifts.map((s) => (
             <div key={s.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
                 <span className="font-mono text-muted-foreground">{s.shiftDate}</span>
                 <span className="font-mono">
-                  {t(s.startMin)}–{t(s.endMin)}
+                  {fmtMin(s.startMin)}–{fmtMin(s.endMin)}
                 </span>
                 {isLead && <span className="font-medium">{s.employeeName}</span>}
                 {s.note && <span className="text-muted-foreground">· {s.note}</span>}
@@ -305,7 +319,7 @@ export default function RosterPage() {
                   className="text-muted-foreground hover:text-destructive"
                   onClick={() => setCancelTarget(s)}
                   disabled={cancel.isPending}
-                  aria-label="Cancel shift"
+                  aria-label={t("roster.cancelShiftAria")}
                 >
                   <Trash2 />
                 </Button>
@@ -323,27 +337,24 @@ export default function RosterPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cancel this shift?</DialogTitle>
+            <DialogTitle>{t("roster.cancelDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {cancelTarget && (
-                <>
-                  {cancelTarget.employeeName ? `${cancelTarget.employeeName} · ` : ""}
-                  {cancelTarget.shiftDate} · {t(cancelTarget.startMin)}–
-                  {t(cancelTarget.endMin)}. This cannot be undone.
-                </>
-              )}
+              {cancelTarget &&
+                t("roster.cancelDialogBody", {
+                  shift: `${cancelTarget.employeeName ? `${cancelTarget.employeeName} · ` : ""}${cancelTarget.shiftDate} · ${fmtMin(cancelTarget.startMin)}–${fmtMin(cancelTarget.endMin)}`,
+                })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setCancelTarget(null)}>
-              Keep shift
+              {t("roster.keepShift")}
             </Button>
             <Button
               variant="destructive"
               disabled={cancel.isPending}
               onClick={() => cancelTarget && cancel.mutate(cancelTarget.id)}
             >
-              <Trash2 /> {cancel.isPending ? "Cancelling…" : "Cancel shift"}
+              <Trash2 /> {cancel.isPending ? t("roster.cancelling") : t("roster.cancelShift")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,6 +7,7 @@ import { roundedSpanMinutes } from "@/server/domain/time/rounding";
 import { computeWeekOvertime, payWeightedMinutes } from "@/server/domain/overtime/engine";
 import { breakComplianceFlags } from "@/server/domain/compliance/breaks-compliance";
 import { assessStatDay, nzDateOf } from "@/server/domain/holidays/stat-pay";
+import { publicHolidayOn } from "@/server/domain/holidays/provider";
 
 export interface TimesheetDay {
   date: string; // NZ date
@@ -113,11 +114,37 @@ export async function buildTimesheet(period: PayPeriod): Promise<TimesheetRow[]>
         owd = hits >= 2;
       }
 
-      const stat = assessStatDay({
-        clockIn: dayEntries[0].clockIn,
-        workedMin: rounded,
-        otherwiseWorkingDay: owd,
-      });
+      // Public-holiday flag + worked-holiday pay.
+      //  - NZ (UNCHANGED): the tuned Holidays Act stat-pay engine (time-and-a-
+      //    half + a possible alternative holiday). OWD only matters here.
+      //  - Every other country: flag the day via the generic provider and pay
+      //    the configured worked-holiday premium (minutes * (multiplier-1)).
+      //    multiplier 1 (the statutory default in the presets) => 0 premium,
+      //    i.e. flagged but no extra. No alternative-holiday concept off-NZ.
+      let publicHoliday: string | null;
+      let timeAndAHalfMin: number;
+      let altHolidayEarned: boolean;
+      if (settings.locale.country === "NZ") {
+        const stat = assessStatDay({
+          clockIn: dayEntries[0].clockIn,
+          workedMin: rounded,
+          otherwiseWorkingDay: owd,
+        });
+        publicHoliday = stat.holidayName;
+        timeAndAHalfMin = stat.timeAndAHalfMin;
+        altHolidayEarned = stat.altHolidayEarned;
+      } else {
+        const hit = publicHolidayOn(
+          date,
+          settings.locale.country,
+          settings.locale.holidayRegion || undefined,
+        );
+        publicHoliday = hit?.name ?? null;
+        const premiumFactor = Math.max(0, settings.locale.holidayPayMultiplier - 1);
+        timeAndAHalfMin = hit ? Math.round(rounded * premiumFactor) : 0;
+        altHolidayEarned = false;
+      }
+
       const flags = breakComplianceFlags(raw, dayBreaks).map((f) => f.code);
 
       days.push({
@@ -126,14 +153,18 @@ export async function buildTimesheet(period: PayPeriod): Promise<TimesheetRow[]>
         rawWorkedMin: raw,
         edited,
         entryIds: dayEntries.map((e) => e.id),
-        publicHoliday: stat.holidayName,
-        timeAndAHalfMin: stat.timeAndAHalfMin,
-        altHolidayEarned: stat.altHolidayEarned,
+        publicHoliday,
+        timeAndAHalfMin,
+        altHolidayEarned,
         complianceFlags: flags,
       });
     }
 
     // Weekly OT: split period days into Mon-Sun weeks by date.
+    // KNOWN LIMITATION: the overtime week is ALWAYS Monday–Sunday and does not
+    // honour settings.locale.weekStart. weekStart currently only affects calendar
+    // display; a Sunday-start weekly-OT boundary is not implemented. Documented in
+    // the settings UI too so we don't imply support we don't have.
     const weeks = new Map<string, number[]>(); // weekKey -> 7 worked-min slots
     for (const d of days) {
       const dt = new Date(d.date + "T00:00:00Z");
