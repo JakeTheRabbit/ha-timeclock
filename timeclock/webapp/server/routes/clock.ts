@@ -10,7 +10,7 @@ import { autoDeductMinutes, unpaidBreakMinutes, workedMinutes } from "@/server/d
 import { getSettings } from "@/server/domain/settings";
 import { geofenceFlag } from "@/server/domain/antifraud/geofence";
 import { ipFlag } from "@/server/domain/antifraud/ip-lock";
-import { savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
+import { decodePunchPhoto, savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
 
 const clockInSchema = z.object({
   jobId: z.string().uuid().nullish(),
@@ -107,6 +107,14 @@ export const clock = new Hono<AppEnv>()
     if (antifraud.photoOnPunch && !body.data.photo) {
       return c.json({ error: "photo_required" }, 400);
     }
+    if (antifraud.photoOnPunch && body.data.photo) {
+      try {
+        decodePunchPhoto(body.data.photo);
+      } catch (e) {
+        if (e instanceof PhotoError) return c.json({ error: e.code }, 400);
+        throw e;
+      }
+    }
 
     const queued = queuedInstant(body.data.clientQueuedAt);
     if (queued) flags.push("offline_queued");
@@ -132,8 +140,7 @@ export const clock = new Hono<AppEnv>()
         await getDb().update(timeEntries).set({ photoPath }).where(eq(timeEntries.id, entry.id));
       } catch (e) {
         if (e instanceof PhotoError && antifraud.photoOnPunch) {
-          // Enforced photo failed validation: remove nothing (entry stands),
-          // but record the flag loudly.
+          // Final guard only. Enforced photo validation happens before insert.
           flags.push(e.code);
           await getDb().update(timeEntries).set({ fraudFlags: flags }).where(eq(timeEntries.id, entry.id));
         }
