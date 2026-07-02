@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest something the add-on should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The problem or the workflow, not just the solution you have in mind. The why is what makes it buildable.
+      placeholder: I want staff to clock out automatically when they leave the site.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How you think it should work
+      description: Optional. A rough shape of the solution if you have one.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

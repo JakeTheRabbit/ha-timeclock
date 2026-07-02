@@ -1,0 +1,48 @@
+name: Bug report
+description: Something is broken or behaving wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security problems do not go here, see SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected instead.
+      placeholder: I tapped Clock out and it showed a wrong PIN error.
+    validations:
+      required: true
+  - type: input
+    id: addon-version
+    attributes:
+      label: Add-on version
+      description: Settings, Add-ons, Time Clock.
+      placeholder: "0.4.2"
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version and install type
+      placeholder: "2026.6.4, Home Assistant OS"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Add-on log
+      description: Relevant lines from Settings, Add-ons, Time Clock, Log. Strip anything sensitive first.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md).
+          required: true
