@@ -1,10 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { KeyRound, TabletSmartphone, UserPlus } from "lucide-react";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 
 interface Emp {
   id: string;
@@ -17,13 +42,17 @@ interface Emp {
 
 const ROLES = ["employee", "lead", "manager", "admin"] as const;
 
+const errMsg = (e: unknown) =>
+  e instanceof ApiError ? `Error ${e.status}: ${JSON.stringify(e.body)}` : "Request failed";
+
 export default function EmployeesAdminPage() {
   const qc = useQueryClient();
   const { session, isLoading: sessionLoading } = useSession();
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("employee");
   const [pin, setPin] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [pinTarget, setPinTarget] = useState<Emp | null>(null);
+  const [newPin, setNewPin] = useState("");
 
   const list = useQuery({
     queryKey: ["admin-employees"],
@@ -36,8 +65,6 @@ export default function EmployeesAdminPage() {
     qc.invalidateQueries({ queryKey: ["admin-employees"] });
     qc.invalidateQueries({ queryKey: ["kiosk-employees"] });
   };
-  const fail = (e: unknown) =>
-    setMsg(e instanceof ApiError ? `Error ${e.status}: ${JSON.stringify(e.body)}` : "Failed");
 
   const create = useMutation({
     mutationFn: () =>
@@ -45,163 +72,361 @@ export default function EmployeesAdminPage() {
     onSuccess: () => {
       setName("");
       setPin("");
-      setMsg("Created.");
+      toast.success("Employee created.");
       refresh();
     },
-    onError: fail,
+    onError: (e) => toast.error(errMsg(e)),
   });
 
   const setEmployeePin = useMutation({
     mutationFn: (vars: { id: string; pin: string }) =>
       apiPost(`/admin/employees/${vars.id}/pin`, { pin: vars.pin }),
     onSuccess: () => {
-      setMsg("PIN updated.");
+      toast.success("PIN updated.");
+      setPinTarget(null);
+      setNewPin("");
       refresh();
     },
-    onError: fail,
+    onError: (e) => toast.error(errMsg(e)),
   });
 
   const patch = useMutation({
     mutationFn: (vars: { id: string; data: Partial<Emp> }) =>
       apiPatch(`/admin/employees/${vars.id}`, vars.data),
-    onSuccess: refresh,
-    onError: fail,
+    onSuccess: () => {
+      toast.success("Saved.");
+      refresh();
+    },
+    onError: (e) => toast.error(errMsg(e)),
+  });
+
+  // Optimistic: flip the switch immediately, roll back + toast on failure.
+  const toggleActive = useMutation({
+    mutationFn: (vars: { id: string; active: boolean }) =>
+      apiPatch(`/admin/employees/${vars.id}`, { active: vars.active }),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["admin-employees"] });
+      const previous = qc.getQueryData<{ employees: Emp[] }>(["admin-employees"]);
+      qc.setQueryData<{ employees: Emp[] }>(["admin-employees"], (old) =>
+        old
+          ? {
+              employees: old.employees.map((e) =>
+                e.id === vars.id ? { ...e, active: vars.active } : e,
+              ),
+            }
+          : old,
+      );
+      return { previous };
+    },
+    onSuccess: (_data, vars) => {
+      toast.success(vars.active ? "Employee activated." : "Employee deactivated.");
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["admin-employees"], ctx.previous);
+      toast.error(errMsg(e));
+    },
+    onSettled: refresh,
   });
 
   const bindDevice = useMutation({
-    mutationFn: () => apiPost("/admin/devices/bind", { name: `Kiosk ${new Date().toISOString().slice(0, 10)}` }),
-    onSuccess: () => setMsg("This device is now a bound kiosk."),
-    onError: fail,
+    mutationFn: () =>
+      apiPost("/admin/devices/bind", {
+        name: `Kiosk ${new Date().toISOString().slice(0, 10)}`,
+      }),
+    onSuccess: () => toast.success("This device is now a bound kiosk."),
+    onError: (e) => toast.error(errMsg(e)),
   });
 
-  if (sessionLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
+  if (sessionLoading)
+    return (
+      <Container>
+        <Skeleton className="h-44 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </Container>
+    );
+
   if (!session)
     return (
-      <Shell>
-        <p className="text-slate-400">
-          Not signed in. Go to the <Link className="underline" href="/pin">PIN screen</Link> and
-          sign in as an admin.
-        </p>
-      </Shell>
+      <Container>
+        <Card>
+          <CardContent className="flex flex-col items-start gap-3">
+            <p className="text-sm text-muted-foreground">
+              Not signed in. Sign in as an admin from the PIN screen.
+            </p>
+            <Button asChild variant="secondary">
+              <Link href="/pin">Go to PIN screen</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </Container>
     );
+
   if (session.employee.role !== "admin")
     return (
-      <Shell>
-        <p className="text-rose-400">Forbidden — admin role required (you are {session.employee.role}).</p>
-      </Shell>
+      <Container>
+        <Card>
+          <CardContent>
+            <p className="text-sm text-destructive">
+              Forbidden — admin role required (you are {session.employee.role}).
+            </p>
+          </CardContent>
+        </Card>
+      </Container>
     );
 
   return (
-    <Shell>
-      <section className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Role
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
-          >
-            {ROLES.map((r) => (
-              <option key={r}>{r}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          PIN (optional)
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            inputMode="numeric"
-            className="w-28 rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
-          />
-        </label>
-        <button
-          onClick={() => create.mutate()}
-          disabled={!name || create.isPending}
-          className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
-        >
-          Add employee
-        </button>
-        <button
-          onClick={() => bindDevice.mutate()}
-          className="ml-auto rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-          title="Registers THIS browser/tablet as a kiosk device"
-        >
-          Bind this device as kiosk
-        </button>
-      </section>
-
-      {msg && <p className="text-sm text-slate-400">{msg}</p>}
-
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
-            <th className="py-2 pr-4">Name</th>
-            <th className="py-2 pr-4">Role</th>
-            <th className="py-2 pr-4">HA user</th>
-            <th className="py-2 pr-4">PIN</th>
-            <th className="py-2 pr-4">Active</th>
-            <th className="py-2">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.data?.employees.map((e) => (
-            <tr key={e.id} className="border-b border-slate-900">
-              <td className="py-2 pr-4">{e.displayName}</td>
-              <td className="py-2 pr-4">
-                <select
-                  value={e.role}
-                  onChange={(ev) => patch.mutate({ id: e.id, data: { role: ev.target.value } })}
-                  className="rounded bg-slate-800 px-2 py-1"
-                >
+    <Container>
+      <Card>
+        <CardHeader>
+          <CardTitle>Add employee</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-[1fr_11rem_8rem]">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-emp-name">Name</Label>
+              <Input
+                id="new-emp-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-emp-role">Role</Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id="new-emp-role" className="capitalize">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {ROLES.map((r) => (
-                    <option key={r}>{r}</option>
+                    <SelectItem key={r} value={r} className="capitalize">
+                      {r}
+                    </SelectItem>
                   ))}
-                </select>
-              </td>
-              <td className="py-2 pr-4 font-mono text-xs text-slate-400">{e.haUsername ?? "—"}</td>
-              <td className="py-2 pr-4">{e.hasPin ? "set" : "—"}</td>
-              <td className="py-2 pr-4">{e.active ? "yes" : "no"}</td>
-              <td className="flex gap-2 py-2">
-                <button
-                  onClick={() => {
-                    const p = window.prompt(`New PIN for ${e.displayName} (4-12 digits):`);
-                    if (p) setEmployeePin.mutate({ id: e.id, pin: p });
-                  }}
-                  className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-emp-pin">PIN (optional)</Label>
+              <Input
+                id="new-emp-pin"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div>
+            <Button onClick={() => create.mutate()} disabled={!name || create.isPending}>
+              <UserPlus /> Add employee
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {list.isLoading && (
+        <>
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </>
+      )}
+
+      {list.data?.employees.length === 0 && (
+        <p className="text-sm text-muted-foreground">No employees yet.</p>
+      )}
+
+      {list.data?.employees.map((e) => (
+        <Card key={e.id} className={cn(!e.active && "opacity-60")}>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-medium">{e.displayName}</span>
+                <Badge variant={e.hasPin ? "secondary" : "outline"}>
+                  {e.hasPin ? "PIN set" : "No PIN"}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label
+                  htmlFor={`active-${e.id}`}
+                  className="text-xs text-muted-foreground"
                 >
-                  set PIN
-                </button>
-                <button
-                  onClick={() => patch.mutate({ id: e.id, data: { active: !e.active } })}
-                  className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                  {e.active ? "Active" : "Inactive"}
+                </Label>
+                <Switch
+                  id={`active-${e.id}`}
+                  checked={e.active}
+                  onCheckedChange={(checked) =>
+                    toggleActive.mutate({ id: e.id, active: checked })
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label
+                  htmlFor={`role-${e.id}`}
+                  className="text-xs text-muted-foreground"
                 >
-                  {e.active ? "deactivate" : "activate"}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Shell>
+                  Role
+                </Label>
+                <Select
+                  value={e.role}
+                  onValueChange={(v) => patch.mutate({ id: e.id, data: { role: v } })}
+                >
+                  <SelectTrigger id={`role-${e.id}`} className="capitalize">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLES.map((r) => (
+                      <SelectItem key={r} value={r} className="capitalize">
+                        {r}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label
+                  htmlFor={`ha-${e.id}`}
+                  className="text-xs text-muted-foreground"
+                >
+                  Home Assistant username
+                </Label>
+                <HaUsernameField
+                  id={`ha-${e.id}`}
+                  employee={e}
+                  onSave={(haUsername) =>
+                    patch.mutate({ id: e.id, data: { haUsername } })
+                  }
+                />
+              </div>
+            </div>
+            <div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setNewPin("");
+                  setPinTarget(e);
+                }}
+              >
+                <KeyRound /> Set PIN
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border p-3">
+        <p className="text-xs text-muted-foreground">
+          Registers this browser or tablet as a kiosk device.
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => bindDevice.mutate()}
+          disabled={bindDevice.isPending}
+        >
+          <TabletSmartphone /> Bind this device as kiosk
+        </Button>
+      </div>
+
+      <Dialog
+        open={!!pinTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPinTarget(null);
+            setNewPin("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set PIN</DialogTitle>
+            <DialogDescription>
+              New PIN for {pinTarget?.displayName ?? "employee"} (4–12 digits).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="set-pin-input">PIN</Label>
+            <Input
+              id="set-pin-input"
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value)}
+              inputMode="numeric"
+              autoComplete="off"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newPin && pinTarget && !setEmployeePin.isPending) {
+                  setEmployeePin.mutate({ id: pinTarget.id, pin: newPin });
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPinTarget(null);
+                setNewPin("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                pinTarget && setEmployeePin.mutate({ id: pinTarget.id, pin: newPin })
+              }
+              disabled={!newPin || setEmployeePin.isPending}
+            >
+              Save PIN
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Container>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/** Inline-editable HA username; PATCHes on blur or Enter when the value changed. */
+function HaUsernameField({
+  id,
+  employee,
+  onSave,
+}: {
+  id: string;
+  employee: Emp;
+  onSave: (haUsername: string | null) => void;
+}) {
+  const [value, setValue] = useState(employee.haUsername ?? "");
+
+  useEffect(() => {
+    setValue(employee.haUsername ?? "");
+  }, [employee.haUsername]);
+
+  const commit = () => {
+    const next = value.trim() || null;
+    if (next === (employee.haUsername ?? null)) return;
+    onSave(next);
+  };
+
   return (
-    <main className="min-h-screen bg-slate-950 p-8 text-slate-100">
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <h1 className="text-xl font-semibold">Admin · Employees</h1>
-        {children}
-      </div>
-    </main>
+    <Input
+      id={id}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      placeholder="HA username"
+      className="font-mono"
+      autoComplete="off"
+    />
   );
+}
+
+function Container({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
 }

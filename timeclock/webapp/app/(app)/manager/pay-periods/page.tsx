@@ -1,10 +1,46 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Download, Lock, LockKeyhole } from "lucide-react";
+
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -30,14 +66,16 @@ interface TimesheetRow {
 }
 
 const h = (min: number) => (min / 60).toFixed(2);
-const d = (iso: string) => new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+const d = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
 
 export default function PayPeriodsPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const [selected, setSelected] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const canSee = session && ["lead", "manager", "admin"].includes(session.employee.role);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const canSee =
+    session && ["lead", "manager", "admin"].includes(session.employee.role);
 
   const periods = useQuery({
     queryKey: ["pay-periods"],
@@ -46,139 +84,275 @@ export default function PayPeriodsPage() {
   });
   const timesheet = useQuery({
     queryKey: ["timesheet", selected],
-    queryFn: () => apiGet<{ period: Period; rows: TimesheetRow[] }>(`/manager/pay-periods/${selected}/timesheet`),
+    queryFn: () =>
+      apiGet<{ period: Period; rows: TimesheetRow[] }>(
+        `/manager/pay-periods/${selected}/timesheet`,
+      ),
     enabled: !!selected,
   });
 
   const lock = useMutation({
     mutationFn: (id: string) => apiPost(`/manager/pay-periods/${id}/lock`),
     onSuccess: () => {
-      setMsg("Period locked — entries inside are now immutable.");
+      toast.success("Period locked — entries inside are now immutable.");
       qc.invalidateQueries({ queryKey: ["pay-periods"] });
+      qc.invalidateQueries({ queryKey: ["timesheet"] });
     },
     onError: (e) =>
-      setMsg(
+      toast.error(
         e instanceof ApiError
           ? `Lock refused: ${(e.body as { error?: string })?.error}`
           : "Lock failed",
       ),
   });
 
-  if (isLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
-  if (!canSee) return <Shell><p className="text-rose-400">Lead role or above required.</p></Shell>;
+  if (isLoading) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    );
+  }
+
+  if (!canSee) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-destructive">Access denied</CardTitle>
+            <CardDescription>Lead role or above required.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  const period = timesheet.data?.period;
 
   return (
-    <Shell>
-      <div className="flex flex-wrap gap-2">
-        {periods.data?.periods.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => setSelected(p.id)}
-            className={`rounded-lg px-3 py-2 text-sm ${
-              selected === p.id ? "bg-sky-500 font-semibold text-slate-950" : "bg-slate-800 hover:bg-slate-700"
-            }`}
-          >
-            {d(p.startAt)} – {d(p.endAt)} {p.lockedAt && "🔒"}
-          </button>
-        ))}
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+      {/* Period selector */}
+      <Select value={selected ?? undefined} onValueChange={setSelected}>
+        <SelectTrigger aria-label="Select pay period">
+          <SelectValue placeholder="Select a pay period…" />
+        </SelectTrigger>
+        <SelectContent>
+          {periods.data?.periods.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {d(p.startAt)} – {d(p.endAt)}
+              {p.lockedAt && <Lock className="size-3.5 text-muted-foreground" />}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      {selected && timesheet.data && (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            {!timesheet.data.period.lockedAt ? (
-              <button
-                onClick={() => lock.mutate(selected)}
-                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold hover:bg-rose-500"
-              >
-                Sign off + LOCK period
-              </button>
-            ) : (
-              <span className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-300">
-                🔒 locked {new Date(timesheet.data.period.lockedAt).toLocaleString("en-NZ")}
-              </span>
-            )}
-            <a
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-              href={`${BASE}/api/reports/timesheet.csv?periodId=${selected}`}
-            >
-              ⬇ timesheet CSV
-            </a>
-            <a
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-              href={`${BASE}/api/reports/timesheet.pdf?periodId=${selected}`}
-            >
-              ⬇ PDF
-            </a>
-            <a
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-              href={`${BASE}/api/reports/payroll?periodId=${selected}&adapter=csv`}
-            >
-              ⬇ payroll CSV
-            </a>
-          </div>
-
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
-                <th className="py-2 pr-3">Employee</th>
-                <th className="py-2 pr-3">Worked</th>
-                <th className="py-2 pr-3">Ordinary</th>
-                <th className="py-2 pr-3">OT 1.5</th>
-                <th className="py-2 pr-3">OT 2.0</th>
-                <th className="py-2 pr-3">Stat T1.5</th>
-                <th className="py-2 pr-3">Alt hol.</th>
-                <th className="py-2 pr-3">Edited</th>
-                <th className="py-2">Flags</th>
-              </tr>
-            </thead>
-            <tbody>
-              {timesheet.data.rows.map((r) => (
-                <tr key={r.employeeId} className="border-b border-slate-900">
-                  <td className="py-2 pr-3 font-medium">{r.employeeName}</td>
-                  <td className="py-2 pr-3 font-mono">{h(r.totals.workedMin)}</td>
-                  <td className="py-2 pr-3 font-mono">{h(r.totals.ordinaryMin)}</td>
-                  <td className="py-2 pr-3 font-mono">{h(r.totals.ot1Min)}</td>
-                  <td className="py-2 pr-3 font-mono">{h(r.totals.ot2Min)}</td>
-                  <td className="py-2 pr-3 font-mono">{h(r.totals.statT15Min)}</td>
-                  <td className="py-2 pr-3">{r.totals.altHolidaysEarned || "—"}</td>
-                  <td className="py-2 pr-3">
-                    {r.totals.editedDays > 0 ? (
-                      <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs text-amber-300">
-                        {r.totals.editedDays}d
-                      </span>
-                    ) : "—"}
-                  </td>
-                  <td className="py-2">
-                    {r.totals.complianceFlagCount > 0 ? (
-                      <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-xs text-rose-300">
-                        {r.totals.complianceFlagCount}
-                      </span>
-                    ) : "—"}
-                  </td>
-                </tr>
-              ))}
-              {timesheet.data.rows.length === 0 && (
-                <tr><td colSpan={9} className="py-6 text-center text-slate-500">No worked time in this period.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </>
+      {selected && timesheet.isLoading && (
+        <Skeleton className="h-64 w-full rounded-xl" />
       )}
 
-      {msg && <p className="text-sm text-slate-400">{msg}</p>}
-      <Link href="/manager" className="text-sm text-slate-500 underline">← manager</Link>
-    </Shell>
-  );
-}
+      {selected && timesheet.data && period && (
+        <>
+          {/* Sign-off / lock + exports */}
+          <div className="flex flex-wrap items-center gap-2">
+            {!period.lockedAt ? (
+              <>
+                <Button
+                  variant="destructive"
+                  disabled={lock.isPending}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  <LockKeyhole /> Sign off + LOCK period
+                </Button>
+                <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Lock this pay period?</DialogTitle>
+                      <DialogDescription>
+                        Signing off locks {d(period.startAt)} –{" "}
+                        {d(period.endAt)}. Every time entry inside the period
+                        becomes immutable. This cannot be undone.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <DialogClose asChild>
+                        <Button variant="outline">Cancel</Button>
+                      </DialogClose>
+                      <Button
+                        variant="destructive"
+                        disabled={lock.isPending}
+                        onClick={() => {
+                          setConfirmOpen(false);
+                          lock.mutate(selected);
+                        }}
+                      >
+                        <LockKeyhole /> Lock period
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </>
+            ) : (
+              <Badge
+                variant="secondary"
+                className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4"
+              >
+                <Lock /> Locked{" "}
+                {new Date(period.lockedAt).toLocaleString("en-NZ")}
+              </Badge>
+            )}
+            <Button asChild variant="outline">
+              <a href={`${BASE}/api/reports/timesheet.csv?periodId=${selected}`}>
+                <Download /> Timesheet CSV
+              </a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href={`${BASE}/api/reports/timesheet.pdf?periodId=${selected}`}>
+                <Download /> PDF
+              </a>
+            </Button>
+            <Button asChild variant="outline">
+              <a
+                href={`${BASE}/api/reports/payroll?periodId=${selected}&adapter=csv`}
+              >
+                <Download /> Payroll CSV
+              </a>
+            </Button>
+          </div>
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex max-w-4xl flex-col gap-5">
-        <h1 className="text-xl font-semibold">Pay periods</h1>
-        {children}
-      </div>
-    </main>
+          {timesheet.data.rows.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No worked time in this period.
+            </p>
+          ) : (
+            <>
+              {/* Mobile: stacked cards */}
+              <div className="flex flex-col gap-3 md:hidden">
+                {timesheet.data.rows.map((r) => (
+                  <Card key={r.employeeId} className="gap-3">
+                    <CardHeader>
+                      <CardTitle>{r.employeeName}</CardTitle>
+                      {(r.totals.editedDays > 0 ||
+                        r.totals.complianceFlagCount > 0) && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {r.totals.editedDays > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500/40 bg-amber-500/10 text-amber-300"
+                            >
+                              {r.totals.editedDays}d edited
+                            </Badge>
+                          )}
+                          {r.totals.complianceFlagCount > 0 && (
+                            <Badge variant="destructive">
+                              {r.totals.complianceFlagCount} flags
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <dt className="text-muted-foreground">Worked</dt>
+                        <dd className="text-right font-mono tabular-nums">
+                          {h(r.totals.workedMin)}
+                        </dd>
+                        <dt className="text-muted-foreground">Ordinary</dt>
+                        <dd className="text-right font-mono tabular-nums">
+                          {h(r.totals.ordinaryMin)}
+                        </dd>
+                        <dt className="text-muted-foreground">OT 1.5</dt>
+                        <dd className="text-right font-mono tabular-nums">
+                          {h(r.totals.ot1Min)}
+                        </dd>
+                        <dt className="text-muted-foreground">OT 2.0</dt>
+                        <dd className="text-right font-mono tabular-nums">
+                          {h(r.totals.ot2Min)}
+                        </dd>
+                        <dt className="text-muted-foreground">Stat T1.5</dt>
+                        <dd className="text-right font-mono tabular-nums">
+                          {h(r.totals.statT15Min)}
+                        </dd>
+                        <dt className="text-muted-foreground">Alt holidays</dt>
+                        <dd className="text-right font-mono tabular-nums">
+                          {r.totals.altHolidaysEarned || "—"}
+                        </dd>
+                      </dl>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Desktop: table */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Worked</TableHead>
+                      <TableHead>Ordinary</TableHead>
+                      <TableHead>OT 1.5</TableHead>
+                      <TableHead>OT 2.0</TableHead>
+                      <TableHead>Stat T1.5</TableHead>
+                      <TableHead>Alt hol.</TableHead>
+                      <TableHead>Edited</TableHead>
+                      <TableHead>Flags</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {timesheet.data.rows.map((r) => (
+                      <TableRow key={r.employeeId}>
+                        <TableCell className="font-medium">
+                          {r.employeeName}
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums">
+                          {h(r.totals.workedMin)}
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums">
+                          {h(r.totals.ordinaryMin)}
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums">
+                          {h(r.totals.ot1Min)}
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums">
+                          {h(r.totals.ot2Min)}
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums">
+                          {h(r.totals.statT15Min)}
+                        </TableCell>
+                        <TableCell>
+                          {r.totals.altHolidaysEarned || "—"}
+                        </TableCell>
+                        <TableCell>
+                          {r.totals.editedDays > 0 ? (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500/40 bg-amber-500/10 text-amber-300"
+                            >
+                              {r.totals.editedDays}d
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {r.totals.complianceFlagCount > 0 ? (
+                            <Badge variant="destructive">
+                              {r.totals.complianceFlagCount}
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
   );
 }

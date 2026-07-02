@@ -1,10 +1,35 @@
 "use client";
 
 import Link from "next/link";
+import * as React from "react";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "@/lib/api-client";
+import { toast } from "sonner";
+import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CalendarPlus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 
 interface Shift {
   id: string;
@@ -32,13 +57,22 @@ interface Emp { id: string; displayName: string }
 const t = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
 
-const STATUS_STYLE: Record<string, string> = {
-  ok: "bg-emerald-500/20 text-emerald-300",
-  in_progress: "bg-sky-500/20 text-sky-300",
-  upcoming: "bg-slate-700 text-slate-300",
-  late: "bg-amber-500/20 text-amber-300",
-  no_show: "bg-rose-500/20 text-rose-300",
+const STATUS_BADGE: Record<Compare["shifts"][number]["status"], string> = {
+  ok: "border-transparent bg-emerald-500/15 text-emerald-300",
+  in_progress: "border-transparent bg-sky-500/15 text-sky-300",
+  upcoming: "border-transparent bg-secondary text-secondary-foreground",
+  late: "border-transparent bg-amber-500/15 text-amber-300",
+  no_show: "border-transparent bg-rose-500/15 text-rose-300",
 };
+
+const errMsg = (e: unknown) =>
+  e instanceof ApiError
+    ? ((e.body as { error?: string })?.error ?? `Error ${e.status}`)
+    : "Request failed";
+
+function Container({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
+}
 
 export default function RosterPage() {
   const qc = useQueryClient();
@@ -46,13 +80,19 @@ export default function RosterPage() {
   const isLead = session && ["lead", "manager", "admin"].includes(session.employee.role);
   const [date, setDate] = useState(todayISO());
   const [form, setForm] = useState({ employeeId: "", start: "08:00", end: "16:30" });
-  const [msg, setMsg] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Shift | null>(null);
 
   const week = useMemo(() => {
     const from = new Date(date + "T00:00:00");
     const to = new Date(from.getTime() + 6 * 86_400_000);
     return { from: date, to: to.toISOString().slice(0, 10) };
   }, [date]);
+
+  const shiftWeek = (days: number) => {
+    const d = new Date(date + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    setDate(d.toLocaleDateString("en-CA"));
+  };
 
   const mine = useQuery({
     queryKey: ["roster-mine", week.from],
@@ -90,121 +130,224 @@ export default function RosterPage() {
         endMin: toMin(form.end),
       }),
     onSuccess: () => {
-      setMsg("Shift added.");
+      toast.success("Shift added.");
       qc.invalidateQueries();
     },
-    onError: () => setMsg("Add failed."),
+    onError: (e) => toast.error(errMsg(e)),
   });
 
   const cancel = useMutation({
     mutationFn: (id: string) => apiPost(`/roster/${id}/cancel`),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => {
+      toast.success("Shift cancelled.");
+      setCancelTarget(null);
+      qc.invalidateQueries();
+    },
+    onError: (e) => toast.error(errMsg(e)),
   });
 
-  if (isLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
+  if (isLoading)
+    return (
+      <Container>
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </Container>
+    );
+
   if (!session)
-    return <Shell><p className="text-slate-400">Not signed in — <Link className="underline" href="/pin">PIN sign-in</Link>.</p></Shell>;
+    return (
+      <Container>
+        <Card>
+          <CardContent className="flex flex-col items-start gap-3">
+            <p className="text-sm text-muted-foreground">You are not signed in.</p>
+            <Button asChild variant="secondary">
+              <Link href="/pin">PIN sign-in</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </Container>
+    );
 
   const shifts = (isLead ? all.data?.shifts : mine.data?.shifts) ?? [];
 
   return (
-    <Shell>
-      <div className="flex items-center gap-3">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-          className="rounded bg-slate-800 px-3 py-2 text-sm" />
-        <span className="text-sm text-slate-500">week of {week.from}</span>
+    <Container>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={() => shiftWeek(-7)} aria-label="Previous week">
+          <ChevronLeft />
+        </Button>
+        <Input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-auto"
+          aria-label="Week starting date"
+        />
+        <Button variant="ghost" size="icon" onClick={() => shiftWeek(7)} aria-label="Next week">
+          <ChevronRight />
+        </Button>
+        <span className="ml-auto text-sm text-muted-foreground">week of {week.from}</span>
       </div>
 
       {isLead && (
-        <section className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm">
-          <label className="flex flex-col gap-1 text-xs text-slate-400">
-            Employee
-            <select value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-              className="rounded bg-slate-800 px-3 py-2 text-slate-100">
-              <option value="">choose…</option>
-              {staff.data?.employees.map((e) => <option key={e.id} value={e.id}>{e.displayName}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-400">
-            Start
-            <input type="time" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })}
-              className="rounded bg-slate-800 px-3 py-2 text-slate-100" />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-400">
-            End
-            <input type="time" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })}
-              className="rounded bg-slate-800 px-3 py-2 text-slate-100" />
-          </label>
-          <button
-            onClick={() => add.mutate()}
-            disabled={!form.employeeId || add.isPending}
-            className="rounded-lg bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
-          >
-            Add shift on {date}
-          </button>
-        </section>
+        <Card>
+          <CardHeader>
+            <CardTitle>Add shift · {date}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="flex flex-col gap-2 sm:col-span-3">
+                <Label htmlFor="shift-employee">Employee</Label>
+                <Select
+                  value={form.employeeId}
+                  onValueChange={(v) => setForm({ ...form, employeeId: v })}
+                >
+                  <SelectTrigger id="shift-employee">
+                    <SelectValue placeholder="Choose employee…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {staff.data?.employees.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="shift-start">Start</Label>
+                <Input
+                  id="shift-start"
+                  type="time"
+                  value={form.start}
+                  onChange={(e) => setForm({ ...form, start: e.target.value })}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="shift-end">End</Label>
+                <Input
+                  id="shift-end"
+                  type="time"
+                  value={form.end}
+                  onChange={(e) => setForm({ ...form, end: e.target.value })}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  className="w-full"
+                  onClick={() => add.mutate()}
+                  disabled={!form.employeeId || add.isPending}
+                >
+                  <CalendarPlus /> {add.isPending ? "Adding…" : "Add shift"}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {isLead && compare.data && compare.data.shifts.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold uppercase text-slate-400">Scheduled vs actual · {date}</h2>
-          <table className="w-full border-collapse text-sm">
-            <tbody>
-              {compare.data.shifts.map((s) => (
-                <tr key={s.rosterId} className="border-b border-slate-900">
-                  <td className="py-2 pr-3 font-medium">{s.employeeName}</td>
-                  <td className="py-2 pr-3 font-mono">{t(s.startMin)}–{t(s.endMin)}</td>
-                  <td className="py-2 pr-3 font-mono text-slate-400">
-                    {s.actualIn ? `in ${new Date(s.actualIn).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}` : "no punch"}
-                  </td>
-                  <td className="py-2">
-                    <span className={`rounded px-2 py-0.5 text-xs ${STATUS_STYLE[s.status]}`}>
-                      {s.status}{s.lateMin > 0 && ` +${s.lateMin}m`}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        <Card>
+          <CardHeader>
+            <CardTitle>Scheduled vs actual · {date}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col divide-y divide-border">
+            {compare.data.shifts.map((s) => (
+              <div key={s.rosterId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
+                <span className="font-medium">{s.employeeName}</span>
+                <span className="font-mono text-sm text-muted-foreground">
+                  {t(s.startMin)}–{t(s.endMin)}
+                </span>
+                <span className="font-mono text-sm text-muted-foreground">
+                  {s.actualIn
+                    ? `in ${new Date(s.actualIn).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" })}`
+                    : "no punch"}
+                </span>
+                <Badge variant="secondary" className={cn("ml-auto capitalize", STATUS_BADGE[s.status])}>
+                  {s.status.replace("_", " ")}
+                  {s.lateMin > 0 && ` +${s.lateMin}m`}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase text-slate-400">
-          {isLead ? "All shifts this week" : "My shifts this week"}
-        </h2>
-        {shifts.length === 0 && <p className="text-sm text-slate-500">No shifts.</p>}
-        <div className="flex flex-col gap-1">
+      <Card>
+        <CardHeader>
+          <CardTitle>{isLead ? "All shifts this week" : "My shifts this week"}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col divide-y divide-border">
+          {(isLead ? all.isLoading : mine.isLoading) && (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-11 w-full" />
+              <Skeleton className="h-11 w-full" />
+            </div>
+          )}
+          {shifts.length === 0 && !(isLead ? all.isLoading : mine.isLoading) && (
+            <p className="py-1 text-sm text-muted-foreground">No shifts.</p>
+          )}
           {shifts.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 rounded border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm">
-              <span className="w-24 font-mono text-slate-400">{s.shiftDate}</span>
-              <span className="font-mono">{t(s.startMin)}–{t(s.endMin)}</span>
-              {isLead && <span className="font-medium">{s.employeeName}</span>}
-              {s.note && <span className="text-slate-500">· {s.note}</span>}
+            <div key={s.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
+                <span className="font-mono text-muted-foreground">{s.shiftDate}</span>
+                <span className="font-mono">
+                  {t(s.startMin)}–{t(s.endMin)}
+                </span>
+                {isLead && <span className="font-medium">{s.employeeName}</span>}
+                {s.note && <span className="text-muted-foreground">· {s.note}</span>}
+              </div>
               {isLead && (
-                <button onClick={() => cancel.mutate(s.id)}
-                  className="ml-auto rounded bg-slate-800 px-2 py-1 text-xs hover:bg-rose-600">
-                  cancel
-                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => setCancelTarget(s)}
+                  disabled={cancel.isPending}
+                  aria-label="Cancel shift"
+                >
+                  <Trash2 />
+                </Button>
               )}
             </div>
           ))}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      {msg && <p className="text-sm text-slate-400">{msg}</p>}
-      <Link href={isLead ? "/manager" : "/clock"} className="text-sm text-slate-500 underline">← back</Link>
-    </Shell>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex max-w-4xl flex-col gap-5">
-        <h1 className="text-xl font-semibold">Roster</h1>
-        {children}
-      </div>
-    </main>
+      {/* Confirm before destroying a shift — a single stray tap should never
+          cancel someone's roster. */}
+      <Dialog
+        open={!!cancelTarget}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this shift?</DialogTitle>
+            <DialogDescription>
+              {cancelTarget && (
+                <>
+                  {cancelTarget.employeeName ? `${cancelTarget.employeeName} · ` : ""}
+                  {cancelTarget.shiftDate} · {t(cancelTarget.startMin)}–
+                  {t(cancelTarget.endMin)}. This cannot be undone.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setCancelTarget(null)}>
+              Keep shift
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cancel.isPending}
+              onClick={() => cancelTarget && cancel.mutate(cancelTarget.id)}
+            >
+              <Trash2 /> {cancel.isPending ? "Cancelling…" : "Cancel shift"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Container>
   );
 }

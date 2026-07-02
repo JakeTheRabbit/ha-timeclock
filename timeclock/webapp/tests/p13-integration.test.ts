@@ -129,7 +129,7 @@ run("P13 HA integration (real Postgres)", () => {
     expect(yaml).toContain("/api/ext/punch");
   });
 
-  it("state push publishes summary + per-employee sensors", async () => {
+  it("state push publishes slim summary + per-employee sensors; history only on demand", async () => {
     const { pushTimeclockStates, setFetchImpl } = await import(
       "@/server/integrations/ha/state-push"
     );
@@ -141,17 +141,50 @@ run("P13 HA integration (real Postgres)", () => {
     process.env.SUPERVISOR_TOKEN = "test-token";
     try {
       await pushTimeclockStates();
+
+      // Default push: summary is SLIM (no daily/weekly/punches) and there is
+      // NO history sensor.
+      const summary = calls.find((c) => c.url.endsWith("/states/sensor.timeclock_summary"));
+      expect(summary).toBeTruthy();
+      const attrs = summary!.body.attributes as {
+        employees: Record<string, unknown>[];
+      };
+      const stew = attrs.employees.find((e) => e.name === "Stew");
+      expect(stew).toBeTruthy();
+      expect(stew).not.toHaveProperty("daily");
+      expect(stew).not.toHaveProperty("weekly");
+      expect(stew).not.toHaveProperty("punches");
+
+      expect(calls.some((c) => c.url.endsWith("/states/sensor.timeclock_stew"))).toBe(true);
+      expect(calls.some((c) => c.url.endsWith("/states/sensor.timeclock_stew_today"))).toBe(true);
+      expect(calls.some((c) => c.url.endsWith("/states/sensor.timeclock_history"))).toBe(false);
+
+      // includeHistory: the heavy series move to a dedicated history sensor.
+      calls.length = 0;
+      await pushTimeclockStates({ includeHistory: true });
+
+      const summary2 = calls.find((c) => c.url.endsWith("/states/sensor.timeclock_summary"));
+      expect(summary2).toBeTruthy();
+      const attrs2 = summary2!.body.attributes as { employees: Record<string, unknown>[] };
+      for (const e of attrs2.employees) {
+        expect(e).not.toHaveProperty("daily");
+        expect(e).not.toHaveProperty("weekly");
+        expect(e).not.toHaveProperty("punches");
+      }
+
+      const history = calls.find((c) => c.url.endsWith("/states/sensor.timeclock_history"));
+      expect(history).toBeTruthy();
+      const hAttrs = history!.body.attributes as {
+        employees: { name: string; daily: unknown[]; weekly: unknown[]; punches: unknown[] }[];
+      };
+      const hStew = hAttrs.employees.find((e) => e.name === "Stew");
+      expect(hStew).toBeTruthy();
+      expect(hStew!.daily).toHaveLength(42);
+      expect(hStew!.weekly).toHaveLength(26);
+      expect(Array.isArray(hStew!.punches)).toBe(true);
     } finally {
       delete process.env.SUPERVISOR_TOKEN;
       setFetchImpl(fetch);
     }
-
-    const summary = calls.find((c) => c.url.endsWith("/states/sensor.timeclock_summary"));
-    expect(summary).toBeTruthy();
-    const attrs = summary!.body.attributes as { employees: { name: string }[] };
-    expect(attrs.employees.some((e) => e.name === "Stew")).toBe(true);
-
-    expect(calls.some((c) => c.url.endsWith("/states/sensor.timeclock_stew"))).toBe(true);
-    expect(calls.some((c) => c.url.endsWith("/states/sensor.timeclock_stew_today"))).toBe(true);
   });
 });

@@ -101,15 +101,27 @@ export async function integrationStatus(): Promise<IntegrationStatus> {
   };
 }
 
+/** Write a file only when content differs; returns true when it wrote. */
+function writeIfChanged(file: string, content: string | Buffer): boolean {
+  try {
+    const current = readFileSync(file);
+    if (current.equals(Buffer.isBuffer(content) ? content : Buffer.from(content))) return false;
+  } catch {
+    // missing -> write
+  }
+  writeFileSync(file, content);
+  return true;
+}
+
 export async function installIntegration(): Promise<IntegrationStatus> {
   if (!existsSync(HA_CONFIG)) {
     throw new Error(`HA config not mounted at ${HA_CONFIG} (map: homeassistant_config missing?)`);
   }
   mkdirSync(path.join(HA_CONFIG, "packages"), { recursive: true });
   mkdirSync(path.join(HA_CONFIG, "www"), { recursive: true });
-  writeFileSync(packagePath(), await buildPackageYaml(), "utf8");
-  writeFileSync(cardPath(), readFileSync(CARD_SOURCE));
-  await reloadHaYaml();
+  const changed = writeIfChanged(packagePath(), await buildPackageYaml());
+  writeIfChanged(cardPath(), readFileSync(CARD_SOURCE));
+  if (changed) await reloadTimeclockYaml();
   return integrationStatus();
 }
 
@@ -117,24 +129,30 @@ export async function installIntegration(): Promise<IntegrationStatus> {
 export async function refreshIntegrationIfInstalled(): Promise<void> {
   if (!existsSync(packagePath())) return;
   try {
-    writeFileSync(packagePath(), await buildPackageYaml(), "utf8");
-    if (existsSync(CARD_SOURCE)) writeFileSync(cardPath(), readFileSync(CARD_SOURCE));
-    await reloadHaYaml();
+    const changed = writeIfChanged(packagePath(), await buildPackageYaml());
+    if (existsSync(CARD_SOURCE)) writeIfChanged(cardPath(), readFileSync(CARD_SOURCE));
+    if (changed) await reloadTimeclockYaml();
   } catch (e) {
     console.error("[ha-install] refresh failed:", e instanceof Error ? e.message : e);
   }
 }
 
-/** Ask HA to re-read YAML (picks up rest_command/script changes, no restart). */
-async function reloadHaYaml(): Promise<void> {
+/**
+ * Reload ONLY the domains our package uses (rest_command + script). Never
+ * homeassistant.reload_all: this HA runs a whole facility out of packages and
+ * a global reload restarts every automation on the box mid-run.
+ */
+async function reloadTimeclockYaml(): Promise<void> {
   const token = process.env.SUPERVISOR_TOKEN;
   if (!token) return;
-  const res = await fetchImpl("http://supervisor/core/api/services/homeassistant/reload_all", {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: "{}",
-  });
-  if (!res.ok) console.error(`[ha-install] reload_all: ${res.status}`);
+  for (const svc of ["rest_command/reload", "script/reload"]) {
+    const res = await fetchImpl(`http://supervisor/core/api/services/${svc}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    if (!res.ok) console.error(`[ha-install] ${svc}: ${res.status}`);
+  }
 }
 
 // Injectable for tests.

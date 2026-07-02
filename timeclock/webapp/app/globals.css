@@ -1,18 +1,111 @@
 @import "tailwindcss";
 
+/*
+ * Permanently dark theme (kiosk + phones). shadcn/ui token set tuned to the
+ * existing slate-950 aesthetic. There is intentionally no light mode.
+ */
 :root {
-  color-scheme: light dark;
+  --radius: 0.75rem;
+
+  /* slate-950 */
+  --background: oklch(0.129 0.042 264.695);
+  /* slate-50 */
+  --foreground: oklch(0.984 0.003 247.858);
+
+  /* slate-900 */
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+
+  /* sky-500 */
+  --primary: oklch(0.685 0.169 237.323);
+  /* slate-950 for contrast on the sky fill */
+  --primary-foreground: oklch(0.129 0.042 264.695);
+
+  /* slate-800 */
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.968 0.007 247.896);
+
+  --muted: oklch(0.279 0.041 260.031);
+  /* slate-400 */
+  --muted-foreground: oklch(0.704 0.04 256.788);
+
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.968 0.007 247.896);
+
+  /* rose-500 */
+  --destructive: oklch(0.645 0.246 16.439);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+
+  /* slate-800 */
+  --border: oklch(0.279 0.041 260.031);
+  --input: oklch(0.279 0.041 260.031);
+  /* sky-400 */
+  --ring: oklch(0.746 0.16 232.661);
 }
 
-html,
-body {
-  height: 100%;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-body {
-  margin: 0;
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
+/* Safe-area utilities (requires viewport-fit=cover; set in root layout). */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+    outline-color: color-mix(in oklab, var(--color-ring) 50%, transparent);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+      Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
 }

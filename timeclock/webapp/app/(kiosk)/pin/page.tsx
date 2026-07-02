@@ -3,6 +3,13 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, Clock, House, KeyRound, LogOut, ShieldCheck, Timer } from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { PinPad } from "@/components/kiosk/PinPad";
 import { useSession, type SessionEmployee } from "@/hooks/use-session";
@@ -20,7 +27,6 @@ export default function PinPage() {
   const qc = useQueryClient();
   const { session } = useSession();
   const [selected, setSelected] = useState<{ id: string; displayName: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const staff = useQuery({
     queryKey: ["kiosk-employees"],
@@ -33,124 +39,163 @@ export default function PinPage() {
 
   const claim = useMutation({
     mutationFn: () => apiPost<{ claimed: boolean }>("/auth/claim-admin"),
-    onSuccess: () => qc.invalidateQueries(),
-    onError: (e) => setError(e instanceof ApiError ? `Claim failed (${e.status})` : "Claim failed"),
+    onSuccess: () => {
+      toast.success("Admin claimed — you're set up");
+      qc.invalidateQueries();
+    },
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? `Claim failed (${e.status})` : "Claim failed"),
   });
 
   const login = useMutation({
     mutationFn: (vars: { employeeId: string; pin: string }) =>
       apiPost<{ ok: boolean; employee: SessionEmployee }>("/auth/pin-login", vars),
-    onSuccess: () => {
-      setError(null);
+    onSuccess: (data) => {
+      toast.success(`Signed in as ${data.employee.displayName}`);
       setSelected(null);
       qc.invalidateQueries({ queryKey: ["session"] });
     },
     onError: (e) => {
       if (e instanceof ApiError) {
         const code = (e.body as { error?: string } | null)?.error;
-        setError(
+        toast.error(
           code === "rate_limited"
             ? "Too many attempts — wait a minute."
             : code === "device_not_bound"
               ? "This device is not a bound kiosk. Ask an admin to bind it."
               : "Wrong PIN.",
         );
-      } else setError("Login failed.");
+      } else toast.error("Login failed.");
     },
   });
 
   const logout = useMutation({
     mutationFn: () => apiPost("/auth/logout"),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["session"] }),
+    onSuccess: () => {
+      toast.success("Signed out");
+      qc.invalidateQueries({ queryKey: ["session"] });
+    },
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? `Sign out failed (${e.status})` : "Sign out failed"),
   });
 
   const showClaim =
     whoami.data?.ha != null && whoami.data.employee == null && !whoami.data.bootstrapped;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-slate-950 p-6 text-slate-100">
-      <h1 className="text-2xl font-semibold">🕐 Time Clock</h1>
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-8 p-6 pb-safe">
+      <div className="flex items-center gap-3">
+        <Clock className="size-8 text-primary" aria-hidden="true" />
+        <h1 className="text-2xl font-semibold tracking-tight">Time Clock</h1>
+      </div>
 
       {session ? (
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-lg">
-            Signed in: <span className="font-semibold">{session.employee.displayName}</span>{" "}
-            <span className="rounded bg-slate-800 px-2 py-0.5 text-xs uppercase text-slate-400">
+        <Card className="w-full max-w-sm">
+          <CardContent className="flex flex-col items-center gap-4 py-4 text-center">
+            <p className="text-lg">
+              Signed in:{" "}
+              <span className="font-semibold">{session.employee.displayName}</span>
+            </p>
+            <Badge variant="secondary" className="capitalize">
               {session.employee.role}
-            </span>
-          </p>
-          <Link
-            href="/clock"
-            className="rounded-xl bg-sky-500 px-8 py-4 text-lg font-semibold text-slate-950 hover:bg-sky-400"
-          >
-            Go to clock →
-          </Link>
-          <button
-            onClick={() => logout.mutate()}
-            className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-          >
-            Sign out
-          </button>
-        </div>
+            </Badge>
+            <Button asChild size="lg" className="h-14 w-full text-lg">
+              <Link href="/clock">
+                <Timer className="size-5" aria-hidden="true" /> Go to clock
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={logout.isPending}
+              onClick={() => logout.mutate()}
+            >
+              <LogOut aria-hidden="true" /> Sign out
+            </Button>
+          </CardContent>
+        </Card>
       ) : selected ? (
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-lg">
-            Hi, <span className="font-semibold">{selected.displayName}</span>
-          </p>
-          <PinPad
-            disabled={login.isPending}
-            onSubmit={(pin) => login.mutate({ employeeId: selected.id, pin })}
-          />
-          {error && <p className="text-sm text-rose-400">{error}</p>}
-          <button className="text-sm text-slate-500 underline" onClick={() => setSelected(null)}>
-            ← back to staff list
-          </button>
-        </div>
+        <Card className="w-full max-w-sm">
+          <CardContent className="flex flex-col items-center gap-4 py-4">
+            <p className="text-lg">
+              Hi, <span className="font-semibold">{selected.displayName}</span>
+            </p>
+            <PinPad
+              disabled={login.isPending}
+              onSubmit={(pin) => login.mutate({ employeeId: selected.id, pin })}
+            />
+            <Button variant="ghost" onClick={() => setSelected(null)}>
+              <ChevronLeft aria-hidden="true" /> Back to staff list
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="flex max-w-md flex-col items-center gap-4">
-          {staff.isLoading && <p className="text-slate-500">Loading staff…</p>}
-          <div className="grid grid-cols-2 gap-3">
-            {staff.data?.employees.map((e) =>
-              e.hasPin ? (
-                <button
-                  key={e.id}
-                  onClick={() => {
-                    setError(null);
-                    setSelected(e);
-                  }}
-                  className="rounded-xl bg-slate-800 px-6 py-4 text-lg font-medium hover:bg-slate-700"
-                >
-                  {e.displayName}
-                </button>
-              ) : (
-                <div
-                  key={e.id}
-                  className="flex flex-col items-center rounded-xl bg-slate-900 px-6 py-4 text-lg font-medium text-slate-600"
-                  title="No PIN set — ask an admin"
-                >
-                  {e.displayName}
-                  <span className="text-xs font-normal">no PIN set</span>
-                </div>
-              ),
-            )}
-          </div>
+        <div className="flex w-full max-w-md flex-col items-center gap-4">
+          {staff.isLoading ? (
+            <div className="grid w-full grid-cols-2 gap-3">
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+            </div>
+          ) : (
+            <div className="grid w-full grid-cols-2 gap-3">
+              {staff.data?.employees.map((e) =>
+                e.hasPin ? (
+                  <Button
+                    key={e.id}
+                    variant="secondary"
+                    onClick={() => setSelected(e)}
+                    className="h-auto min-h-16 whitespace-normal rounded-xl px-4 py-4 text-lg font-medium"
+                  >
+                    {e.displayName}
+                  </Button>
+                ) : (
+                  <div
+                    key={e.id}
+                    aria-disabled="true"
+                    title="No PIN set — ask an admin"
+                    className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-card px-4 py-3 text-lg font-medium text-muted-foreground opacity-60"
+                  >
+                    {e.displayName}
+                    <Badge variant="outline" className="font-normal">
+                      No PIN set
+                    </Badge>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
           {staff.data?.employees.length === 0 && (
-            <p className="text-center text-sm text-slate-500">
+            <p className="text-center text-sm text-muted-foreground">
               No staff yet.
               {whoami.data?.employee ? " Add them in Admin → Employees." : ""}
             </p>
           )}
           {showClaim && (
-            <button
+            <Button
+              size="lg"
+              disabled={claim.isPending}
               onClick={() => claim.mutate()}
-              className="rounded-lg bg-sky-500 px-4 py-2 font-semibold text-slate-950 hover:bg-sky-400"
             >
-              First-time setup: claim admin
-            </button>
+              <ShieldCheck aria-hidden="true" /> First-time setup: claim admin
+            </Button>
           )}
-          {error && <p className="text-sm text-rose-400">{error}</p>}
+          {!session && !selected && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <KeyRound className="size-3.5" aria-hidden="true" />
+              Tap your name, then enter your PIN
+            </p>
+          )}
         </div>
       )}
+
+      {/* The lock screen has no shell chrome, so give it its own way out —
+          never rely on the browser back button (it exits the HA ingress iframe). */}
+      <Button asChild variant="ghost" className="text-muted-foreground">
+        <Link href="/">
+          <House aria-hidden="true" /> Back to home
+        </Link>
+      </Button>
     </main>
   );
 }

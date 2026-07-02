@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 — UI overhaul + stop disturbing the rest of Home Assistant
+
+Feedback round 2 (Ben): "it's crashing HA", "navigation and UI suck",
+"deactivate doesn't work".
+
+- **No more facility-wide reloads**: the integration installer previously
+  called `homeassistant.reload_all` after writing the package — on a box
+  running production automations out of packages that restarted everything
+  (looked like an HA crash). Now reloads only `rest_command` + `script`, and
+  only when the generated file content actually changed.
+- **Recorder-friendly sensors**: `sensor.timeclock_summary` is now slim
+  (status + period totals; attribute-stable while idle so recorder dedupes);
+  graph series + punches moved to `sensor.timeclock_history`, pushed only on
+  punches + hourly. Card v1.1.0 reads both.
+- **Complete UI rebuild** (shadcn/ui, dark, mobile-first): fixed bottom nav
+  in thumb reach (Home / Clock / Hours, + Manager for leads, + Admin for
+  admins), top bar with an in-app back button on every screen (never relies
+  on the browser/app back button), Home is a role-aware launcher menu, big
+  touch targets, tables collapse to cards on phones.
+- **Every action now gives visible feedback** (toasts). "Deactivate didn't
+  work" was a server-side success with an invisible error path on failure —
+  it's now an optimistic toggle switch with rollback + error toast, covered
+  by regression tests (deactivate hides from kiosk grid, reactivate
+  restores, role changes audited).
+- Employees admin: set PIN via dialog (no more window.prompt), HA username
+  editable inline (SSO linking), clearer statuses.
+
 ## 0.2.1 — fix sensor push on small-ICU Node (Alpine)
 
 - `nzDateOf`/pay-period date strings were built with locale `.format()`;

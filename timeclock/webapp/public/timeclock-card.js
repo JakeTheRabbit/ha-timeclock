@@ -12,7 +12,7 @@
  */
 "use strict";
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 const PALETTE = ["#38bdf8", "#a78bfa", "#34d399", "#fb923c", "#f472b6", "#facc15", "#22d3ee", "#f87171"];
 
 const fmtMin = (min) => {
@@ -46,6 +46,7 @@ class TimeclockCard extends HTMLElement {
   setConfig(config) {
     this._config = {
       entity: "sensor.timeclock_summary",
+      history_entity: "sensor.timeclock_history",
       title: "Time Clock",
       show_seconds: false,
       ...config,
@@ -59,7 +60,8 @@ class TimeclockCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     const st = hass.states[this._config.entity];
-    const stamp = st ? st.last_updated + st.state : "missing";
+    const hi = hass.states[this._config.history_entity];
+    const stamp = (st ? st.last_updated + st.state : "missing") + (hi ? hi.last_updated : "");
     if (stamp !== this._stamp || !this._rendered) {
       this._stamp = stamp;
       this._render();
@@ -84,9 +86,28 @@ class TimeclockCard extends HTMLElement {
     }, 30_000);
   }
 
+  /**
+   * Summary sensor carries slim live data; the graph/punch series live on the
+   * separate history sensor (pushed less often, recorder-friendly). Merge by
+   * employee id; default to empty series when history hasn't arrived yet.
+   */
   _data() {
     const st = this._hass && this._hass.states[this._config.entity];
-    return st && st.attributes.employees ? st.attributes : null;
+    if (!st || !st.attributes.employees) return null;
+    const hist = this._hass.states[this._config.history_entity];
+    const byId = {};
+    ((hist && hist.attributes.employees) || []).forEach((e) => (byId[e.id] = e));
+    return {
+      ...st.attributes,
+      updated: st.attributes.updated || st.last_updated,
+      employees: st.attributes.employees.map((e) => ({
+        daily: [],
+        weekly: [],
+        punches: [],
+        ...e,
+        ...(byId[e.id] || {}),
+      })),
+    };
   }
 
   /** Live minutes: attribute totals age while clocked in (breaks don't count). */

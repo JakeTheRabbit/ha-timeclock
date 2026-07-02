@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Check, Delete } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "ok"] as const;
 
@@ -27,31 +30,36 @@ export function PinPad({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="flex h-10 items-center gap-2 text-3xl tracking-widest text-slate-100">
+      <div
+        className="flex h-10 items-center gap-2 text-3xl tracking-widest text-foreground"
+        aria-live="polite"
+        aria-label={pin.length === 0 ? "Enter PIN" : `${pin.length} digits entered`}
+      >
         {pin.length === 0 ? (
-          <span className="text-base text-slate-500">Enter PIN</span>
+          <span className="text-base text-muted-foreground">Enter PIN</span>
         ) : (
           "●".repeat(pin.length)
         )}
       </div>
       <div className="grid grid-cols-3 gap-3">
         {KEYS.map((k) => (
-          <button
+          <Button
             key={k}
             type="button"
-            disabled={disabled}
+            variant={k === "ok" ? "default" : k === "clear" ? "outline" : "secondary"}
+            disabled={disabled || (k === "ok" && pin.length < 4)}
             onClick={() => press(k)}
-            className={
-              "h-16 w-16 rounded-xl text-xl font-semibold transition active:scale-95 disabled:opacity-40 " +
-              (k === "ok"
-                ? "bg-sky-500 text-slate-950 hover:bg-sky-400"
-                : k === "clear"
-                  ? "bg-slate-800 text-slate-400 hover:bg-slate-700 text-sm"
-                  : "bg-slate-800 text-slate-100 hover:bg-slate-700")
-            }
+            aria-label={k === "clear" ? "Clear PIN" : k === "ok" ? "Submit PIN" : k}
+            className="h-16 w-20 rounded-xl text-2xl font-semibold active:scale-95"
           >
-            {k === "clear" ? "CLR" : k === "ok" ? "OK" : k}
-          </button>
+            {k === "clear" ? (
+              <Delete className="size-6" aria-hidden="true" />
+            ) : k === "ok" ? (
+              <Check className="size-7" aria-hidden="true" />
+            ) : (
+              k
+            )}
+          </Button>
         ))}
       </div>
     </div>

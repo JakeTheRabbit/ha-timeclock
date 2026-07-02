@@ -1,10 +1,42 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Search, ShieldAlert, ShieldCheck } from "lucide-react";
+
 import { apiGet } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const ENTITY_TYPES = [
+  "time_entry",
+  "break",
+  "employee",
+  "correction",
+  "leave_request",
+  "leave_ledger",
+  "roster",
+  "pay_period",
+  "device",
+  "settings",
+  "job",
+];
 
 interface AuditRow {
   id: number;
@@ -22,11 +54,16 @@ interface AuditRow {
 export default function AuditPage() {
   const { session, isLoading } = useSession();
   const [entityType, setEntityType] = useState("");
-  const canSee = session && ["lead", "manager", "admin"].includes(session.employee.role);
+  const [search, setSearch] = useState("");
+  const canSee =
+    session && ["lead", "manager", "admin"].includes(session.employee.role);
 
   const verify = useQuery({
     queryKey: ["audit-verify"],
-    queryFn: () => apiGet<{ ok: boolean; broken_at: number | null; detail: string }>("/manager/audit/verify"),
+    queryFn: () =>
+      apiGet<{ ok: boolean; broken_at: number | null; detail: string }>(
+        "/manager/audit/verify",
+      ),
     enabled: !!canSee,
   });
   const rows = useQuery({
@@ -38,65 +75,136 @@ export default function AuditPage() {
     enabled: !!canSee,
   });
 
-  if (isLoading) return <Shell><p className="text-slate-500">Loading…</p></Shell>;
-  if (!canSee) return <Shell><p className="text-rose-400">Lead role or above required.</p></Shell>;
+  if (isLoading) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    );
+  }
+
+  if (!canSee) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-destructive">Access denied</CardTitle>
+            <CardDescription>Lead role or above required.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  // Client-side text filter over the fetched page of rows.
+  const needle = search.trim().toLowerCase();
+  const visible = (rows.data?.rows ?? []).filter(
+    (r) =>
+      !needle ||
+      r.action.toLowerCase().includes(needle) ||
+      r.entityType.toLowerCase().includes(needle) ||
+      r.entityId.toLowerCase().includes(needle) ||
+      (r.reason ?? "").toLowerCase().includes(needle) ||
+      (r.actorId ?? "").toLowerCase().includes(needle),
+  );
 
   return (
-    <Shell>
-      <div className="flex items-center gap-3">
-        {verify.data && (
-          <span
-            className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-              verify.data.ok ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"
-            }`}
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+      {/* Chain verification status */}
+      {verify.data &&
+        (verify.data.ok ? (
+          <Badge
+            variant="outline"
+            className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm text-emerald-300 [&>svg]:size-4"
           >
-            {verify.data.ok ? "⛓ hash chain intact" : `⚠ CHAIN BROKEN at #${verify.data.broken_at}`}
-          </span>
-        )}
-        <select
-          value={entityType}
-          onChange={(e) => setEntityType(e.target.value)}
-          className="rounded bg-slate-800 px-3 py-2 text-sm"
+            <ShieldCheck /> Hash chain intact
+          </Badge>
+        ) : (
+          <Badge
+            variant="destructive"
+            className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4"
+          >
+            <ShieldAlert /> CHAIN BROKEN at #{verify.data.broken_at}
+          </Badge>
+        ))}
+
+      {/* Filter row */}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Select
+          value={entityType || "all"}
+          onValueChange={(v) => setEntityType(v === "all" ? "" : v)}
         >
-          <option value="">all entities</option>
-          {["time_entry", "break", "employee", "correction", "leave_request", "leave_ledger", "roster", "pay_period", "device", "settings", "job"].map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+          <SelectTrigger className="sm:w-52" aria-label="Filter by entity type">
+            <SelectValue placeholder="All entities" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All entities</SelectItem>
+            {ENTITY_TYPES.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter entries…"
+            className="pl-9"
+            aria-label="Filter entries"
+          />
+        </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        {rows.data?.rows.map((r) => (
-          <details key={r.id} className="rounded border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm">
-            <summary className="cursor-pointer">
-              <span className="font-mono text-xs text-slate-500">#{r.id}</span>{" "}
-              <span className="text-slate-400">{new Date(r.createdAt).toLocaleString("en-NZ")}</span>{" "}
-              <span className="font-medium">{r.entityType}</span> ·{" "}
-              <span className="text-sky-300">{r.action}</span>
-              {r.reason && <span className="text-slate-400"> — {r.reason}</span>}
+      {/* Entries */}
+      <div className="flex flex-col gap-1.5">
+        {rows.isLoading && (
+          <>
+            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-11 w-full" />
+          </>
+        )}
+        {!rows.isLoading && visible.length === 0 && (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No matching audit entries.
+          </p>
+        )}
+        {visible.map((r) => (
+          <details
+            key={r.id}
+            className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
+          >
+            <summary className="flex min-h-8 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <span className="font-mono text-xs text-muted-foreground">
+                #{r.id}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {new Date(r.createdAt).toLocaleString("en-NZ")}
+              </span>
+              <span className="font-medium">{r.entityType}</span>
+              <span className="text-primary">{r.action}</span>
+              {r.reason && (
+                <span className="text-muted-foreground">— {r.reason}</span>
+              )}
             </summary>
-            <div className="mt-2 grid gap-1 font-mono text-xs text-slate-400">
+            <div className="mt-2 grid gap-1 break-all font-mono text-xs text-muted-foreground">
               <div>entity: {r.entityId}</div>
               {r.actorId && <div>actor: {r.actorId}</div>}
-              {r.oldValue && <div className="text-rose-300/70">old: {r.oldValue}</div>}
-              {r.newValue && <div className="text-emerald-300/70">new: {r.newValue}</div>}
+              {r.oldValue && (
+                <div className="text-destructive/80">old: {r.oldValue}</div>
+              )}
+              {r.newValue && (
+                <div className="text-emerald-300/80">new: {r.newValue}</div>
+              )}
               <div>hash: {r.hash.slice(0, 16)}…</div>
             </div>
           </details>
         ))}
       </div>
-      <Link href="/manager" className="text-sm text-slate-500 underline">← manager</Link>
-    </Shell>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <div className="mx-auto flex max-w-4xl flex-col gap-5">
-        <h1 className="text-xl font-semibold">Compliance audit</h1>
-        {children}
-      </div>
-    </main>
+    </div>
   );
 }

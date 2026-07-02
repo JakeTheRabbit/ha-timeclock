@@ -83,12 +83,24 @@ of day, and a year-total race). All data comes from `sensor.timeclock_summary`.
 
 | Entity | State | Notes |
 | ------ | ----- | ----- |
-| `sensor.timeclock_summary` | people clocked in | attributes carry the full per-employee dataset the card renders |
+| `sensor.timeclock_summary` | people clocked in | slim per-employee attrs (status + today/week/month/quarter/year); attribute-stable while idle |
+| `sensor.timeclock_history` | date | heavy graph series (42-day daily, 26-week weekly, recent punches); pushed only on punches + hourly |
 | `sensor.timeclock_<name>` | `in` / `break` / `out` | today/week/month/quarter/year hour attributes — automate on it |
 | `sensor.timeclock_<name>_today` | hours today | numeric, for native HA history graphs |
 
-Updated ~2 s after every punch and every 5 minutes in between. If recorder
-bloat bothers you, exclude `sensor.timeclock_summary` from recorder.
+Summary + per-employee sensors update ~2 s after every punch and every 5
+minutes in between. To keep the recorder lean, exclude the history sensor:
+
+```yaml
+recorder:
+  exclude:
+    entities:
+      - sensor.timeclock_history
+```
+
+The installer reloads only `rest_command` and `script` (never
+`homeassistant.reload_all`) and only when the generated package actually
+changed — it will not disturb other automations on the box.
 
 ## Android widget (companion app)
 

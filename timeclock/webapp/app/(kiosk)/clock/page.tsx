@@ -3,6 +3,20 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Briefcase, CloudOff, Coffee, KeyRound, LogIn, LogOut } from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLiveTimer } from "@/hooks/use-live-timer";
@@ -22,11 +36,18 @@ interface Jobs {
   jobs: { id: string; name: string; code: string | null }[];
 }
 
+/** Marker returned by act() when the punch was queued offline instead of sent. */
+interface ActResult {
+  queued?: boolean;
+  [key: string]: unknown;
+}
+
+const NO_JOB = "__none__";
+
 export default function ClockPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const [jobId, setJobId] = useState<string>("");
-  const [msg, setMsg] = useState<string | null>(null);
 
   const status = useQuery({
     queryKey: ["clock-status"],
@@ -47,180 +68,241 @@ export default function ClockPage() {
 
   // Offline queue: flush on mount + whenever connectivity returns.
   useEffect(() => {
-    setQueued(queuedPunches().length);
     const flush = () =>
       flushQueue().then((n) => {
         setQueued(queuedPunches().length);
         if (n > 0) {
-          setMsg(t("synced_punches", { n }));
+          toast.success(t("synced_punches", { n }));
           qc.invalidateQueries({ queryKey: ["clock-status"] });
         }
       });
+    setQueued(queuedPunches().length);
     flush();
     window.addEventListener("online", flush);
     return () => window.removeEventListener("online", flush);
   }, [qc]);
 
-  const act = (path: string, data?: Record<string, unknown>) =>
-    apiPost(path, data)
+  const act = (path: string, data?: Record<string, unknown>): Promise<ActResult> =>
+    apiPost<ActResult>(path, data)
       .then((r) => {
-        setMsg(null);
         qc.invalidateQueries({ queryKey: ["clock-status"] });
-        return r;
+        return r ?? {};
       })
       .catch((e) => {
         // Network down: queue clock in/out punches for replay (P12).
         if (isNetworkError(e) && (path === "/clock/in" || path === "/clock/out")) {
           enqueuePunch(path, data ?? {});
           setQueued(queuedPunches().length);
-          setMsg(t("offline_queued"));
-          return {};
+          toast.info(t("offline_queued"));
+          return { queued: true };
         }
-        setMsg(e instanceof ApiError ? `${(e.body as { error?: string })?.error ?? e.status}` : "failed");
+        toast.error(
+          e instanceof ApiError
+            ? `${(e.body as { error?: string })?.error ?? e.status}`
+            : "Request failed",
+        );
         throw e;
       });
 
-  const clockIn = useMutation({ mutationFn: () => act("/clock/in", { jobId: jobId || null }) });
+  const clockIn = useMutation({
+    mutationFn: () => act("/clock/in", { jobId: jobId || null }),
+    onSuccess: (r) => {
+      if (!r.queued) toast.success("Clocked in");
+    },
+  });
   const clockOut = useMutation({
     mutationFn: () =>
       act("/clock/out").then((r) => {
-        const out = r as { workedMinutes: number; autoDeductedMin: number };
-        setMsg(
-          `Worked ${(out.workedMinutes / 60).toFixed(2)}h` +
-            (out.autoDeductedMin > 0 ? ` (auto-deducted ${out.autoDeductedMin}min break)` : ""),
-        );
+        const out = r as { workedMinutes?: number; autoDeductedMin?: number };
+        if (typeof out.workedMinutes === "number") {
+          toast.success(
+            `Worked ${(out.workedMinutes / 60).toFixed(2)}h` +
+              ((out.autoDeductedMin ?? 0) > 0
+                ? ` (auto-deducted ${out.autoDeductedMin}min break)`
+                : ""),
+          );
+        }
       }),
   });
-  const breakStart = useMutation({ mutationFn: () => act("/clock/break/start", { paid: false }) });
-  const breakEnd = useMutation({ mutationFn: () => act("/clock/break/end") });
-  const switchJob = useMutation({ mutationFn: (id: string) => act("/clock/switch-job", { jobId: id }) });
+  const breakStart = useMutation({
+    mutationFn: () => act("/clock/break/start", { paid: false }),
+    onSuccess: () => toast.success("Break started"),
+  });
+  const breakEnd = useMutation({
+    mutationFn: () => act("/clock/break/end"),
+    onSuccess: () => toast.success("Break ended"),
+  });
+  const switchJob = useMutation({
+    mutationFn: (id: string) => act("/clock/switch-job", { jobId: id }),
+    onSuccess: () => toast.success("Switched job"),
+  });
+
+  const busy =
+    clockIn.isPending ||
+    clockOut.isPending ||
+    breakStart.isPending ||
+    breakEnd.isPending ||
+    switchJob.isPending;
 
   if (isLoading)
-    return <Shell><p className="text-slate-500">Loading…</p></Shell>;
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-4 p-4">
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-20 w-full max-w-sm rounded-xl" />
+      </div>
+    );
+
   if (!session)
     return (
-      <Shell>
-        <p className="text-slate-400">
-          Not signed in. <Link className="underline" href="/pin">PIN sign-in</Link> first.
-        </p>
-      </Shell>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+        <Card>
+          <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
+            <p className="text-muted-foreground">Not signed in.</p>
+            <Button asChild size="lg">
+              <Link href="/pin">
+                <KeyRound aria-hidden="true" /> PIN sign-in
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     );
 
   return (
-    <Shell>
-      <p className="text-lg">
-        <span className="font-semibold">{session.employee.displayName}</span>{" "}
-        <span className="rounded bg-slate-800 px-2 py-0.5 text-xs uppercase text-slate-400">
-          {session.employee.role}
-        </span>
-      </p>
-
-      {open ? (
-        <div className="flex flex-col items-center gap-5">
-          <div className="text-center">
-            <div className="font-mono text-6xl tabular-nums">{timer}</div>
-            <div className="mt-1 text-sm text-slate-400">
+    <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6 p-4 pt-8">
+      {/* Status header */}
+      <div className="flex flex-col items-center gap-3 text-center">
+        {open ? (
+          <>
+            <Badge className="px-3 py-1 text-sm">Clocked in</Badge>
+            <div className="font-mono text-6xl tabular-nums sm:text-7xl">{timer}</div>
+            <div className="text-sm text-muted-foreground">
               since {new Date(open.clockIn).toLocaleTimeString("en-NZ")}
-              {open.job ? <> · job: <span className="text-slate-200">{open.job.name}</span></> : null}
+              {open.job ? (
+                <>
+                  {" "}
+                  · job: <span className="text-foreground">{open.job.name}</span>
+                </>
+              ) : null}
               {open.unpaidBreakMin > 0 ? <> · {open.unpaidBreakMin}min break taken</> : null}
             </div>
-          </div>
+          </>
+        ) : (
+          <>
+            <Badge variant="secondary" className="px-3 py-1 text-sm">
+              Clocked out
+            </Badge>
+            <div className="font-mono text-6xl text-muted-foreground/40 tabular-nums sm:text-7xl">
+              0:00:00
+            </div>
+          </>
+        )}
+      </div>
 
-          {open.onBreak ? (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-8 py-4">
-              <div className="text-amber-300">
-                On {open.onBreak.paid ? "paid" : "unpaid"} break · {breakTimer}
-              </div>
-              <Btn onClick={() => breakEnd.mutate()} color="amber">End break</Btn>
+      {open ? (
+        open.onBreak ? (
+          /* On break: end break is the only action (matches previous behavior). */
+          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-6 py-5">
+            <div className="flex items-center gap-2 text-amber-300">
+              <Coffee className="size-5" aria-hidden="true" />
+              On {open.onBreak.paid ? "paid" : "unpaid"} break ·{" "}
+              <span className="font-mono tabular-nums">{breakTimer}</span>
             </div>
-          ) : (
-            <div className="flex flex-wrap justify-center gap-3">
-              <Btn onClick={() => breakStart.mutate()} color="slate">Start break</Btn>
-              {jobList.data && jobList.data.jobs.length > 0 && (
-                <select
-                  className="rounded-lg bg-slate-800 px-3 py-2 text-sm"
-                  value=""
-                  onChange={(e) => e.target.value && switchJob.mutate(e.target.value)}
-                >
-                  <option value="">Switch job…</option>
-                  {jobList.data.jobs
-                    .filter((j) => j.id !== open.job?.id)
-                    .map((j) => (
-                      <option key={j.id} value={j.id}>{j.name}</option>
-                    ))}
-                </select>
-              )}
-              <Btn onClick={() => clockOut.mutate()} color="rose">Clock out</Btn>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center gap-4">
-          {jobList.data && jobList.data.jobs.length > 0 && (
-            <select
-              className="rounded-lg bg-slate-800 px-4 py-3"
-              value={jobId}
-              onChange={(e) => setJobId(e.target.value)}
+            <Button
+              disabled={busy}
+              onClick={() => breakEnd.mutate()}
+              className="h-16 w-full rounded-xl bg-amber-500 text-xl font-semibold text-amber-950 hover:bg-amber-400 active:bg-amber-400/90"
             >
-              <option value="">No job / general</option>
-              {jobList.data.jobs.map((j) => (
-                <option key={j.id} value={j.id}>{j.name}</option>
-              ))}
-            </select>
+              End break
+            </Button>
+          </div>
+        ) : (
+          <div className="flex w-full max-w-sm flex-col gap-3">
+            {/* Giant primary action */}
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => clockOut.mutate()}
+              className="h-20 w-full rounded-xl text-2xl font-semibold"
+            >
+              <LogOut className="size-7" aria-hidden="true" /> Clock out
+            </Button>
+            {/* Secondary row: break + switch job */}
+            <div className="flex w-full gap-3">
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => breakStart.mutate()}
+                className="h-14 flex-1 rounded-xl text-base"
+              >
+                <Coffee className="size-5" aria-hidden="true" /> Start break
+              </Button>
+              {jobList.data && jobList.data.jobs.length > 0 && (
+                <Select
+                  key={open.job?.id ?? "general"}
+                  disabled={busy}
+                  onValueChange={(v) => switchJob.mutate(v)}
+                >
+                  <SelectTrigger
+                    aria-label="Switch job"
+                    className="h-14 min-h-14 flex-1 rounded-xl"
+                  >
+                    <Briefcase className="size-5 shrink-0" aria-hidden="true" />
+                    <SelectValue placeholder="Switch job…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {jobList.data.jobs
+                      .filter((j) => j.id !== open.job?.id)
+                      .map((j) => (
+                        <SelectItem key={j.id} value={j.id}>
+                          {j.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+        )
+      ) : (
+        <div className="flex w-full max-w-sm flex-col gap-3">
+          {jobList.data && jobList.data.jobs.length > 0 && (
+            <Select
+              disabled={busy}
+              value={jobId === "" ? NO_JOB : jobId}
+              onValueChange={(v) => setJobId(v === NO_JOB ? "" : v)}
+            >
+              <SelectTrigger aria-label="Job" className="h-14 min-h-14 rounded-xl">
+                <Briefcase className="size-5 shrink-0" aria-hidden="true" />
+                <SelectValue placeholder="No job / general" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_JOB}>No job / general</SelectItem>
+                {jobList.data.jobs.map((j) => (
+                  <SelectItem key={j.id} value={j.id}>
+                    {j.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
-          <Btn onClick={() => clockIn.mutate()} color="sky" big>Clock in</Btn>
+          {/* Giant primary action */}
+          <Button
+            disabled={busy}
+            onClick={() => clockIn.mutate()}
+            className="h-20 w-full rounded-xl text-2xl font-semibold"
+          >
+            <LogIn className="size-7" aria-hidden="true" /> Clock in
+          </Button>
         </div>
       )}
 
-      {msg && <p className="text-sm text-slate-300">{msg}</p>}
       {queued > 0 && (
-        <p className="rounded bg-amber-500/20 px-3 py-1 text-xs text-amber-300">
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          <CloudOff className="size-4" aria-hidden="true" />
           {queued} offline punch(es) pending sync
-        </p>
+        </div>
       )}
-      <nav className="flex gap-4 text-sm text-slate-500">
-        <Link href="/my-hours" className="underline">My hours</Link>
-        <Link href="/roster" className="underline">Roster</Link>
-        <Link href="/leave" className="underline">Leave</Link>
-      </nav>
-    </Shell>
-  );
-}
-
-function Btn({
-  children,
-  onClick,
-  color,
-  big,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  color: "sky" | "rose" | "slate" | "amber";
-  big?: boolean;
-}) {
-  const colors = {
-    sky: "bg-sky-500 text-slate-950 hover:bg-sky-400",
-    rose: "bg-rose-500 text-slate-950 hover:bg-rose-400",
-    slate: "bg-slate-800 text-slate-100 hover:bg-slate-700",
-    amber: "bg-amber-500 text-slate-950 hover:bg-amber-400",
-  };
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-xl font-semibold transition active:scale-95 ${colors[color]} ${
-        big ? "px-12 py-6 text-2xl" : "px-6 py-3"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-950 p-6 text-slate-100">
-      <h1 className="text-xl font-semibold">🕐 Time Clock</h1>
-      {children}
-    </main>
+    </div>
   );
 }
