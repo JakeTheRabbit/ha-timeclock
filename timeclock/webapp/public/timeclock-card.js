@@ -15,6 +15,14 @@
 const CARD_VERSION = "1.1.1";
 const PALETTE = ["#38bdf8", "#a78bfa", "#34d399", "#fb923c", "#f472b6", "#facc15", "#22d3ee", "#f87171"];
 
+// Active display locale. Set from the summary sensor's `locale` attribute (the
+// add-on's configured BCP-47 tag); falls back to the browser's own locale so
+// the card stays dependency-free with no import and no network call of its own.
+let _locale = (typeof navigator !== "undefined" && navigator.language) || "en-NZ";
+const setCardLocale = (l) => {
+  if (l && typeof l === "string") _locale = l;
+};
+
 const fmtMin = (min) => {
   const m = Math.max(0, Math.round(min));
   const h = Math.floor(m / 60);
@@ -22,11 +30,11 @@ const fmtMin = (min) => {
 };
 const fmtH = (min) => (min / 60).toFixed(1) + "h";
 const fmtTime = (iso) =>
-  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleTimeString(_locale, { hour: "2-digit", minute: "2-digit" });
 const fmtDate = (iso) =>
-  new Date(iso).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+  new Date(iso).toLocaleDateString(_locale, { weekday: "short", day: "numeric", month: "short" });
 const dayLabel = (d) =>
-  new Date(d + "T12:00:00").toLocaleDateString([], { day: "numeric", month: "short" });
+  new Date(d + "T12:00:00").toLocaleDateString(_locale, { day: "numeric", month: "short" });
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 class TimeclockCard extends HTMLElement {
@@ -61,7 +69,12 @@ class TimeclockCard extends HTMLElement {
     this._hass = hass;
     const st = hass.states[this._config.entity];
     const hi = hass.states[this._config.history_entity];
-    const stamp = (st ? st.last_updated + st.state : "missing") + (hi ? hi.last_updated : "");
+    // Adopt the add-on's configured display locale (pushed on the summary
+    // sensor) if present; otherwise the module default (navigator.language)
+    // stays in effect. Kept in the stamp so a locale change re-renders.
+    const cardLocale = (st && st.attributes && st.attributes.locale) || "";
+    setCardLocale(cardLocale);
+    const stamp = (st ? st.last_updated + st.state + cardLocale : "missing") + (hi ? hi.last_updated : "");
     if (stamp !== this._stamp || !this._rendered) {
       this._stamp = stamp;
       this._render();
@@ -438,7 +451,7 @@ class TimeclockCard extends HTMLElement {
     for (let i = 0; i < DAYS; i++) {
       const dt = new Date(today.getTime() - (DAYS - 1 - i) * 86_400_000);
       if (dt.getDay() === 1 || i === DAYS - 1)
-        labels += `<text x="${L + i * bw + bw / 2}" y="${H - B + 16}" class="ax" text-anchor="middle">${dt.toLocaleDateString([], { day: "numeric", month: "short" })}</text>`;
+        labels += `<text x="${L + i * bw + bw / 2}" y="${H - B + 16}" class="ax" text-anchor="middle">${dt.toLocaleDateString(_locale, { day: "numeric", month: "short" })}</text>`;
     }
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${bars}${labels}</svg>`;
   }

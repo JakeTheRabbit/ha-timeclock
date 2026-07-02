@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0 — localization: countries, holidays, and language packs
+
+Use it outside New Zealand without hand-editing config.
+
+- **Country presets** (Admin -> Settings -> Region and language): New Zealand,
+  USA, UK, Ireland, Canada, Australia, Germany, France, Switzerland, Sweden,
+  Denmark. Picking a country sets week start, currency, date/number format,
+  timezone, and a starting overtime rule. Every field stays editable.
+- **Public holidays per country and region** via the `date-holidays` library
+  (US state, German Bundesland, Swiss canton, UK nation, Canada province,
+  Australia state). New Zealand keeps its own tuned engine (Matariki,
+  Mondayisation, Auckland Anniversary) and its Holidays Act stat-pay — NZ
+  behaviour is unchanged.
+- **Locale-aware formatting** everywhere (dates, times, numbers, currency).
+- **Language packs** for the employee-facing UI: English, German, French,
+  Swedish, Danish. Set the language in Settings. Missing strings fall back to
+  English, so the UI never blanks. The non-English translations are a starting
+  point and should be checked by a native speaker before staff rely on them.
+- Overtime and holiday presets are editable DEFAULTS, not legal advice. This
+  add-on tracks hours and exports them; it does NOT calculate income tax
+  (US federal/state, PAYE, Lohnsteuer, etc.) — that is your payroll system's job.
+
 ## 0.4.2 — dashboard card header fix + polished repo
 
 - Card (v1.1.1): the header read the clocked-in count from a sensor attribute

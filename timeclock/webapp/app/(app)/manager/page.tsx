@@ -14,6 +14,7 @@ import {
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLiveTimer } from "@/hooks/use-live-timer";
+import { useLocale } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -90,6 +91,7 @@ function LiveRow({ e }: { e: Board["clockedIn"][number] }) {
 export default function ManagerPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
+  const loc = useLocale();
   const canSee =
     session && ["lead", "manager", "admin"].includes(session.employee.role);
 
@@ -215,14 +217,13 @@ export default function ManagerPage() {
                 <div className="mt-1 text-xs text-muted-foreground">
                   {cr.requested.clockIn && (
                     <>
-                      in → {new Date(cr.requested.clockIn).toLocaleString("en-NZ")}
+                      in → {loc.dateTime(cr.requested.clockIn)}
                       {" · "}
                     </>
                   )}
                   {cr.requested.clockOut && (
                     <>
-                      out →{" "}
-                      {new Date(cr.requested.clockOut).toLocaleString("en-NZ")}
+                      out → {loc.dateTime(cr.requested.clockOut)}
                     </>
                   )}
                 </div>

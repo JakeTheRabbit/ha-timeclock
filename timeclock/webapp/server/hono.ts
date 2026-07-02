@@ -11,6 +11,7 @@ import { leave } from "./routes/leave";
 import { manager } from "./routes/manager";
 import { reports } from "./routes/reports";
 import { ext } from "./routes/ext";
+import { locale } from "./routes/locale";
 import { contextMiddleware, type AppEnv } from "./context";
 
 // Next STRIPS its basePath before the App Router hands the request to this
@@ -24,6 +25,7 @@ export const app = new Hono<AppEnv>().basePath(API_BASE);
 app.use(contextMiddleware);
 
 app.route("/", health);
+app.route("/", locale);
 app.route("/auth", auth);
 app.route("/admin", admin);
 app.route("/clock", clock);

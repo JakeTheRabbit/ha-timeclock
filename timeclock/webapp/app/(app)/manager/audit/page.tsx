@@ -6,6 +6,7 @@ import { Search, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { apiGet } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { useLocale } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -53,6 +54,7 @@ interface AuditRow {
 
 export default function AuditPage() {
   const { session, isLoading } = useSession();
+  const loc = useLocale();
   const [entityType, setEntityType] = useState("");
   const [search, setSearch] = useState("");
   const canSee =
@@ -183,7 +185,7 @@ export default function AuditPage() {
                 #{r.id}
               </span>
               <span className="text-xs text-muted-foreground">
-                {new Date(r.createdAt).toLocaleString("en-NZ")}
+                {loc.dateTime(r.createdAt)}
               </span>
               <span className="font-medium">{r.entityType}</span>
               <span className="text-primary">{r.action}</span>

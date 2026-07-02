@@ -21,7 +21,8 @@ import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLiveTimer } from "@/hooks/use-live-timer";
 import { enqueuePunch, flushQueue, queuedPunches, isNetworkError } from "@/lib/offline-queue";
-import { t } from "@/lib/i18n";
+import { useT } from "@/lib/i18n";
+import { useLocale } from "@/lib/format";
 
 interface Status {
   open: {
@@ -47,6 +48,8 @@ const NO_JOB = "__none__";
 export default function ClockPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
+  const loc = useLocale();
+  const t = useT();
   const [jobId, setJobId] = useState<string>("");
 
   const status = useQuery({
@@ -72,7 +75,7 @@ export default function ClockPage() {
       flushQueue().then((n) => {
         setQueued(queuedPunches().length);
         if (n > 0) {
-          toast.success(t("synced_punches", { n }));
+          toast.success(t("clock.syncedPunches", { n }));
           qc.invalidateQueries({ queryKey: ["clock-status"] });
         }
       });
@@ -80,7 +83,7 @@ export default function ClockPage() {
     flush();
     window.addEventListener("online", flush);
     return () => window.removeEventListener("online", flush);
-  }, [qc]);
+  }, [qc, t]);
 
   const act = (path: string, data?: Record<string, unknown>): Promise<ActResult> =>
     apiPost<ActResult>(path, data)
@@ -93,13 +96,13 @@ export default function ClockPage() {
         if (isNetworkError(e) && (path === "/clock/in" || path === "/clock/out")) {
           enqueuePunch(path, data ?? {});
           setQueued(queuedPunches().length);
-          toast.info(t("offline_queued"));
+          toast.info(t("clock.offlineQueued"));
           return { queued: true };
         }
         toast.error(
           e instanceof ApiError
             ? `${(e.body as { error?: string })?.error ?? e.status}`
-            : "Request failed",
+            : t("toast.requestFailed"),
         );
         throw e;
       });
@@ -107,7 +110,7 @@ export default function ClockPage() {
   const clockIn = useMutation({
     mutationFn: () => act("/clock/in", { jobId: jobId || null }),
     onSuccess: (r) => {
-      if (!r.queued) toast.success("Clocked in");
+      if (!r.queued) toast.success(t("toast.clockedIn"));
     },
   });
   const clockOut = useMutation({
@@ -115,26 +118,26 @@ export default function ClockPage() {
       act("/clock/out").then((r) => {
         const out = r as { workedMinutes?: number; autoDeductedMin?: number };
         if (typeof out.workedMinutes === "number") {
+          const hours = (out.workedMinutes / 60).toFixed(2);
           toast.success(
-            `Worked ${(out.workedMinutes / 60).toFixed(2)}h` +
-              ((out.autoDeductedMin ?? 0) > 0
-                ? ` (auto-deducted ${out.autoDeductedMin}min break)`
-                : ""),
+            (out.autoDeductedMin ?? 0) > 0
+              ? t("toast.workedAutoDeducted", { hours, min: out.autoDeductedMin ?? 0 })
+              : t("toast.worked", { hours }),
           );
         }
       }),
   });
   const breakStart = useMutation({
     mutationFn: () => act("/clock/break/start", { paid: false }),
-    onSuccess: () => toast.success("Break started"),
+    onSuccess: () => toast.success(t("toast.breakStarted")),
   });
   const breakEnd = useMutation({
     mutationFn: () => act("/clock/break/end"),
-    onSuccess: () => toast.success("Break ended"),
+    onSuccess: () => toast.success(t("toast.breakEnded")),
   });
   const switchJob = useMutation({
     mutationFn: (id: string) => act("/clock/switch-job", { jobId: id }),
-    onSuccess: () => toast.success("Switched job"),
+    onSuccess: () => toast.success(t("toast.switchedJob")),
   });
 
   const busy =
@@ -157,10 +160,10 @@ export default function ClockPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
-            <p className="text-muted-foreground">Not signed in.</p>
+            <p className="text-muted-foreground">{t("clock.notSignedIn")}</p>
             <Button asChild size="lg">
               <Link href="/pin">
-                <KeyRound aria-hidden="true" /> PIN sign-in
+                <KeyRound aria-hidden="true" /> {t("common.pinSignIn")}
               </Link>
             </Button>
           </CardContent>
@@ -174,23 +177,27 @@ export default function ClockPage() {
       <div className="flex flex-col items-center gap-3 text-center">
         {open ? (
           <>
-            <Badge className="px-3 py-1 text-sm">Clocked in</Badge>
+            <Badge className="px-3 py-1 text-sm">{t("clock.clockedIn")}</Badge>
             <div className="font-mono text-6xl tabular-nums sm:text-7xl">{timer}</div>
             <div className="text-sm text-muted-foreground">
-              since {new Date(open.clockIn).toLocaleTimeString("en-NZ")}
+              {t("clock.since", {
+                time: loc.time(open.clockIn, { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+              })}
               {open.job ? (
                 <>
                   {" "}
-                  · job: <span className="text-foreground">{open.job.name}</span>
+                  · <span className="text-foreground">{t("clock.jobLabel", { name: open.job.name })}</span>
                 </>
               ) : null}
-              {open.unpaidBreakMin > 0 ? <> · {open.unpaidBreakMin}min break taken</> : null}
+              {open.unpaidBreakMin > 0 ? (
+                <> · {t("clock.breakTaken", { n: open.unpaidBreakMin })}</>
+              ) : null}
             </div>
           </>
         ) : (
           <>
             <Badge variant="secondary" className="px-3 py-1 text-sm">
-              Clocked out
+              {t("clock.clockedOut")}
             </Badge>
             <div className="font-mono text-6xl text-muted-foreground/40 tabular-nums sm:text-7xl">
               0:00:00
@@ -205,7 +212,7 @@ export default function ClockPage() {
           <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-6 py-5">
             <div className="flex items-center gap-2 text-amber-300">
               <Coffee className="size-5" aria-hidden="true" />
-              On {open.onBreak.paid ? "paid" : "unpaid"} break ·{" "}
+              {open.onBreak.paid ? t("clock.onBreakPaid") : t("clock.onBreakUnpaid")} ·{" "}
               <span className="font-mono tabular-nums">{breakTimer}</span>
             </div>
             <Button
@@ -213,7 +220,7 @@ export default function ClockPage() {
               onClick={() => breakEnd.mutate()}
               className="h-16 w-full rounded-xl bg-amber-500 text-xl font-semibold text-amber-950 hover:bg-amber-400 active:bg-amber-400/90"
             >
-              End break
+              {t("clock.endBreak")}
             </Button>
           </div>
         ) : (
@@ -225,7 +232,7 @@ export default function ClockPage() {
               onClick={() => clockOut.mutate()}
               className="h-20 w-full rounded-xl text-2xl font-semibold"
             >
-              <LogOut className="size-7" aria-hidden="true" /> Clock out
+              <LogOut className="size-7" aria-hidden="true" /> {t("clock.clockOut")}
             </Button>
             {/* Secondary row: break + switch job */}
             <div className="flex w-full gap-3">
@@ -235,7 +242,7 @@ export default function ClockPage() {
                 onClick={() => breakStart.mutate()}
                 className="h-14 flex-1 rounded-xl text-base"
               >
-                <Coffee className="size-5" aria-hidden="true" /> Start break
+                <Coffee className="size-5" aria-hidden="true" /> {t("clock.startBreak")}
               </Button>
               {jobList.data && jobList.data.jobs.length > 0 && (
                 <Select
@@ -244,11 +251,11 @@ export default function ClockPage() {
                   onValueChange={(v) => switchJob.mutate(v)}
                 >
                   <SelectTrigger
-                    aria-label="Switch job"
+                    aria-label={t("clock.switchJob")}
                     className="h-14 min-h-14 flex-1 rounded-xl"
                   >
                     <Briefcase className="size-5 shrink-0" aria-hidden="true" />
-                    <SelectValue placeholder="Switch job…" />
+                    <SelectValue placeholder={t("clock.switchJobPlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {jobList.data.jobs
@@ -272,12 +279,12 @@ export default function ClockPage() {
               value={jobId === "" ? NO_JOB : jobId}
               onValueChange={(v) => setJobId(v === NO_JOB ? "" : v)}
             >
-              <SelectTrigger aria-label="Job" className="h-14 min-h-14 rounded-xl">
+              <SelectTrigger aria-label={t("clock.job")} className="h-14 min-h-14 rounded-xl">
                 <Briefcase className="size-5 shrink-0" aria-hidden="true" />
-                <SelectValue placeholder="No job / general" />
+                <SelectValue placeholder={t("clock.noJob")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_JOB}>No job / general</SelectItem>
+                <SelectItem value={NO_JOB}>{t("clock.noJob")}</SelectItem>
                 {jobList.data.jobs.map((j) => (
                   <SelectItem key={j.id} value={j.id}>
                     {j.name}
@@ -292,7 +299,7 @@ export default function ClockPage() {
             onClick={() => clockIn.mutate()}
             className="h-20 w-full rounded-xl text-2xl font-semibold"
           >
-            <LogIn className="size-7" aria-hidden="true" /> Clock in
+            <LogIn className="size-7" aria-hidden="true" /> {t("clock.clockIn")}
           </Button>
         </div>
       )}
@@ -300,7 +307,7 @@ export default function ClockPage() {
       {queued > 0 && (
         <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
           <CloudOff className="size-4" aria-hidden="true" />
-          {queued} offline punch(es) pending sync
+          {t("clock.offlinePending", { n: queued })}
         </div>
       )}
     </div>

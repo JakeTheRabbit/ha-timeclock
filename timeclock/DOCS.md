@@ -7,6 +7,33 @@ Full guides on GitHub:
 [Admin and Manager guide](https://github.com/JakeTheRabbit/ha-timeclock/blob/main/docs/admin-guide.md)
 and [Employee guide](https://github.com/JakeTheRabbit/ha-timeclock/blob/main/docs/employee-guide.md).
 
+## Region and language
+
+Admin -> Settings -> Region and language. Pick a country to load defaults for
+date/number formatting, week start, currency, timezone, public holidays, and a
+starting overtime rule: New Zealand, USA, UK, Ireland, Canada, Australia,
+Germany, France, Switzerland, Sweden, Denmark. Every field stays editable, and
+you can set an optional holiday region (US state, German Bundesland, Swiss
+canton, UK nation, Canada province, Australia state).
+
+Public holidays come from the `date-holidays` library for every country except
+New Zealand, which keeps its own computed engine (Matariki, Mondayisation,
+Auckland Anniversary) and Holidays Act stat-pay. For other countries a day is
+flagged as a public holiday and paid at the "worked public holiday" multiplier
+you set (default 1, i.e. no premium — set it to match your agreement).
+
+The UI is translated into English, German, French, Swedish, and Danish. Set the
+language in the same panel. Anything not translated falls back to English, so
+the interface never blanks. The non-English translations are a solid starting
+point generated for this release; have a native speaker check them before staff
+rely on them.
+
+Two honest limits. Overtime and holiday presets are editable starting points,
+not legal advice — check them against your local law or awards. And this add-on
+does not calculate income tax (US federal/state, UK PAYE, German Lohnsteuer,
+and so on); it tracks hours and exports them to your payroll system, which does
+the tax.
+
 ## Configuration
 
 | Option      | Default            | Notes                                   |

@@ -1,8 +1,11 @@
 // Single source of truth for the facility timezone. Every timestamp the app
 // shows a human (punch times, rosters, pay periods) is rendered in this zone;
-// everything stored in Postgres stays UTC (timestamptz). NZ observes DST, so
+// everything stored in Postgres stays UTC (timestamptz). Zones observe DST, so
 // never do wall-clock math with fixed offsets — always go through Intl here.
-export const APP_TZ = "Pacific/Auckland";
+//
+// The add-on run script exports process.env.TZ from the add-on's timezone
+// config option, so the configured zone wins; falls back to Pacific/Auckland.
+export const APP_TZ = process.env.TZ || "Pacific/Auckland";
 
 /** Current instant as an ISO-8601 string with the Pacific/Auckland offset. */
 export function nowISOInTZ(date: Date = new Date()): string {

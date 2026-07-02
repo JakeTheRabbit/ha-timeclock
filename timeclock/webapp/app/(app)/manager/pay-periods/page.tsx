@@ -7,6 +7,7 @@ import { Download, Lock, LockKeyhole } from "lucide-react";
 
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
+import { useLocale } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,12 +67,12 @@ interface TimesheetRow {
 }
 
 const h = (min: number) => (min / 60).toFixed(2);
-const d = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
 
 export default function PayPeriodsPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
+  const loc = useLocale();
+  const d = (iso: string) => loc.date(iso, { day: "numeric", month: "short" });
   const [selected, setSelected] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const canSee =
@@ -197,8 +198,7 @@ export default function PayPeriodsPage() {
                 variant="secondary"
                 className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4"
               >
-                <Lock /> Locked{" "}
-                {new Date(period.lockedAt).toLocaleString("en-NZ")}
+                <Lock /> Locked {loc.dateTime(period.lockedAt)}
               </Badge>
             )}
             <Button asChild variant="outline">

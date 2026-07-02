@@ -9,6 +9,28 @@ import { appendAudit } from "@/server/domain/audit/writer";
  * parses to a fully-populated config and new fields never need migrations.
  */
 export const settingsSchema = z.object({
+  locale: z
+    .object({
+      // ISO-3166 alpha-2 country preset. NZ keeps the computed holiday engine +
+      // its tuned stat-pay logic; all other codes route holidays via date-holidays.
+      country: z.enum(["NZ", "US", "GB", "IE", "CA", "AU", "DE", "FR", "CH", "SE", "DK"]).default("NZ"),
+      // Consumed by the later i18n task; UI is NOT translated yet. Default en.
+      language: z.enum(["en", "de", "fr", "sv", "da"]).default("en"),
+      // BCP-47 locale tag for Intl date/number/currency formatting.
+      bcp47: z.string().default("en-NZ"),
+      // ISO 4217 currency code (display only — this is NOT tax/payroll software).
+      currency: z.string().default("NZD"),
+      // First day of the week for calendars/timesheet grouping. 0=Sun, 1=Mon.
+      weekStart: z.union([z.literal(0), z.literal(1)]).default(1),
+      // Optional state/province/canton passed to date-holidays (e.g. "CA" for
+      // California under country "US"). Empty = country-level holidays only.
+      holidayRegion: z.string().default(""),
+      // Worked-public-holiday pay premium for NON-NZ countries (NZ keeps its own
+      // Holidays Act stat-pay logic). 1 = no premium (statutory default in most
+      // of the presets below); admins can raise it per their agreement.
+      holidayPayMultiplier: z.number().min(1).default(1),
+    })
+    .default({}),
   overtime: z
     .object({
       dailyThresholdMin: z.number().int().min(0).default(8 * 60), // NZ spec: daily > 8h
