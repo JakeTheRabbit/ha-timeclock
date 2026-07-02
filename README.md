@@ -41,13 +41,25 @@ kiosk tablet, with manager approval workflows and immutable audit history.
 
 ## Current release
 
-Version `0.1.3` is feature-complete through P12. It includes the first-boot
-admin seed fix, HA Ingress routing, bundled PostgreSQL 16, migrations, and CI
-coverage.
+Version `0.2.0` adds HA SSO (accounts follow the HA login), the
+`timeclock-card` dashboard card (live tiles, logs, totals, graphs), Android
+companion-app widgets for one-tap clock in/out from a phone, and pushed
+`sensor.timeclock_*` entities — on top of the P12 feature-complete base.
 
 ## Features
 
-- Kiosk PIN sign-in with device binding.
+- **HA SSO**: employees are signed in automatically on any device via the HA
+  account they opened the panel with; kiosk PIN sign-in for shared tablets
+  (device binding optional, off by default).
+- **Dashboard card** `custom:timeclock-card`: per-person live status and
+  today/week totals with one-tap clock in/out, punch log, week / month /
+  quarter / year totals, and graphs (stacked daily bars, 26-week trend, punch
+  map, year race) — installed with one click from Admin → Settings.
+- **Android widgets**: generated `script.timeclock_<name>_toggle` per employee;
+  add an HA companion Actions widget to clock in/out from the home screen.
+- **Sensors**: `sensor.timeclock_summary`, `sensor.timeclock_<name>` (status +
+  hour totals), `sensor.timeclock_<name>_today` (numeric) — pushed ~2 s after
+  every punch.
 - Clock in/out, paid and unpaid breaks, job switching, live timers, and offline
   punch replay.
 - Immutable audit trail with append-only audit rows, Postgres trigger guards,

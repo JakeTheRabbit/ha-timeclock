@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
@@ -10,6 +11,13 @@ import { hashPin } from "@/server/auth/pin";
 import { registerDevice, DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE } from "@/server/auth/device";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { getSettings, updateSettings } from "@/server/domain/settings";
+import {
+  buildPackageYaml,
+  installIntegration,
+  integrationStatus,
+  refreshIntegrationIfInstalled,
+} from "@/server/integrations/ha/install";
+import { schedulePush } from "@/server/integrations/ha/state-push";
 
 const createEmployeeSchema = z.object({
   displayName: z.string().min(1).max(100),
@@ -72,6 +80,8 @@ export const admin = new Hono<AppEnv>()
       actorId: actor.employee.id,
       newValue: { displayName: row.displayName, role: row.role, hasPin: !!pin },
     });
+    void refreshIntegrationIfInstalled(); // keep generated HA scripts in sync
+    schedulePush();
     return c.json({ employee: { id: row.id, displayName: row.displayName, role: row.role } }, 201);
   })
 
@@ -107,6 +117,8 @@ export const admin = new Hono<AppEnv>()
         haUsername: after.haUsername,
       },
     });
+    void refreshIntegrationIfInstalled();
+    schedulePush();
     return c.json({ ok: true });
   })
 
@@ -236,4 +248,54 @@ export const admin = new Hono<AppEnv>()
       newValue: { name: device.name },
     });
     return c.json({ device: { id: device.id, name: device.name } }, 201);
+  })
+
+  // ---- HA integration: dashboard card + companion-app widgets ----
+
+  .get("/integration", async (c) => {
+    const { integration } = await getSettings();
+    const status = await integrationStatus();
+    return c.json({
+      apiKey: integration.apiKey, // admin-only route; shown for manual setup
+      status,
+      packageYaml: integration.apiKey ? await buildPackageYaml() : null,
+    });
+  })
+
+  // Generate / rotate the external API key (rotation invalidates old widgets
+  // until the package regenerates — which happens right here).
+  .post("/integration/key", async (c) => {
+    const actor = c.get("auth")!;
+    const apiKey = randomBytes(24).toString("hex");
+    await updateSettings({ integration: { apiKey } }, actor.employee.id);
+    await refreshIntegrationIfInstalled();
+    return c.json({ apiKey });
+  })
+
+  // Write packages/timeclock.yaml + www/timeclock-card.js into HA config and
+  // ask HA to reload YAML. Idempotent.
+  .post("/integration/install", async (c) => {
+    const actor = c.get("auth")!;
+    let { integration } = await getSettings();
+    if (!integration.apiKey) {
+      integration = (
+        await updateSettings(
+          { integration: { apiKey: randomBytes(24).toString("hex") } },
+          actor.employee.id,
+        )
+      ).integration;
+    }
+    try {
+      const status = await installIntegration();
+      await appendAudit({
+        entityType: "settings",
+        entityId: "1",
+        action: "integration_install",
+        actorId: actor.employee.id,
+        newValue: { package: status.packageInstalled, card: status.cardInstalled },
+      });
+      return c.json({ ok: true, status });
+    } catch (e) {
+      return c.json({ error: "install_failed", detail: e instanceof Error ? e.message : String(e) }, 500);
+    }
   });
