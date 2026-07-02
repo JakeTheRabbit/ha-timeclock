@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { APP_TZ } from "@/lib/tz";
 
-// P0 milestone screen. Deliberately minimal — proves the panel loads through
-// Ingress with assets resolving (no /_next 404s). P3 replaces this with the
-// kiosk clock-in home screen.
+// Home shell for the Ingress panel. Operational flows live behind the kiosk,
+// manager, and admin routes.
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-950 p-8 text-slate-100">
@@ -49,8 +48,8 @@ export default function Home() {
       </dl>
 
       <p className="max-w-md text-center text-xs text-slate-500">
-        Next phase (P1) adds the database schema, append-only audit log, and the
-        immutability proof.
+        Feature-complete add-on v0.1.3: kiosk clocking, immutable audit,
+        manager approvals, payroll exports, anti-fraud checks, and backups.
       </p>
     </main>
   );

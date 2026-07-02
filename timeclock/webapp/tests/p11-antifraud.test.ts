@@ -128,6 +128,17 @@ run("P11 anti-fraud punch flow (real Postgres)", () => {
     expect(noPhoto.status).toBe(400);
     expect((await noPhoto.json()).error).toBe("photo_required");
 
+    const invalidPhoto = await app.request("/api/clock/in", {
+      method: "POST",
+      headers: jsonHeaders(w.employeeCookie),
+      body: JSON.stringify({ photo: "not-a-jpeg" }),
+    });
+    expect(invalidPhoto.status).toBe(400);
+    expect((await invalidPhoto.json()).error).toBe("photo_not_jpeg");
+
+    const before = await admin.query("SELECT count(*)::int AS n FROM time_entries WHERE clock_out IS NULL");
+    expect(before.rows[0].n).toBe(0);
+
     // Tiny valid JPEG (SOI + EOI markers with filler).
     const jpeg = Buffer.concat([
       Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
