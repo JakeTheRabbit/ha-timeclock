@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2 — dashboard card header fix + polished repo
+
+- Card (v1.1.1): the header read the clocked-in count from a sensor attribute
+  that never existed (the count is the entity state), so it showed "undefined
+  clocked in". It now derives the count from the per-employee statuses, so the
+  header is always correct. Found while producing the repo screenshots.
+- Repo: README with screenshots and badges, MIT LICENSE, admin/manager and
+  employee guides, CONTRIBUTING, SECURITY, and GitHub issue/PR templates. No
+  functional add-on change beyond the card fix.
+
 ## 0.4.1 — make API-key rotation honest about HA reloads
 
 - On the box, `rest_command.reload` can return 400 (e.g. a pre-existing

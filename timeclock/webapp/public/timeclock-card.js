@@ -12,7 +12,7 @@
  */
 "use strict";
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.1.1";
 const PALETTE = ["#38bdf8", "#a78bfa", "#34d399", "#fb923c", "#f472b6", "#facc15", "#22d3ee", "#f87171"];
 
 const fmtMin = (min) => {
@@ -97,16 +97,20 @@ class TimeclockCard extends HTMLElement {
     const hist = this._hass.states[this._config.history_entity];
     const byId = {};
     ((hist && hist.attributes.employees) || []).forEach((e) => (byId[e.id] = e));
+    const employees = st.attributes.employees.map((e) => ({
+      daily: [],
+      weekly: [],
+      punches: [],
+      ...e,
+      ...(byId[e.id] || {}),
+    }));
     return {
       ...st.attributes,
       updated: st.attributes.updated || st.last_updated,
-      employees: st.attributes.employees.map((e) => ({
-        daily: [],
-        weekly: [],
-        punches: [],
-        ...e,
-        ...(byId[e.id] || {}),
-      })),
+      // The clocked-in count is the sensor STATE, not an attribute — derive it
+      // from statuses so the header is always correct regardless of the entity.
+      clockedIn: employees.filter((e) => e.status !== "out").length,
+      employees,
     };
   }
 

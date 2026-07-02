@@ -3,6 +3,10 @@
 Employee time-clock add-on. Kiosk-first (shared tablet on the HA sidebar), with
 an immutable, hash-chained audit trail.
 
+Full guides on GitHub:
+[Admin and Manager guide](https://github.com/JakeTheRabbit/ha-timeclock/blob/main/docs/admin-guide.md)
+and [Employee guide](https://github.com/JakeTheRabbit/ha-timeclock/blob/main/docs/employee-guide.md).
+
 ## Configuration
 
 | Option      | Default            | Notes                                   |
