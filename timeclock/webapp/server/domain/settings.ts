@@ -73,6 +73,24 @@ export const settingsSchema = z.object({
       apiKey: z.string().default(""),
     })
     .default({}),
+  presence: z
+    .object({
+      // Presence-based reminders: when someone's phone joins the work network
+      // (presence entity → present) offer a "clock in" notification; when it
+      // leaves, offer "clock out". Notify-only — never auto-punches.
+      enabled: z.boolean().default(false),
+      pollSec: z.number().int().min(15).max(600).default(60),
+      // How long presence must be stable before we act (anti-flap).
+      arriveGraceSec: z.number().int().min(0).default(120),
+      departGraceSec: z.number().int().min(0).default(300),
+      // For sensor-type presence entities (e.g. a companion-app Wi-Fi SSID
+      // sensor): "present" means state === this SSID. Ignored for
+      // device_tracker/person/binary_sensor entities.
+      ssid: z.string().default(""),
+      notifyOnArrive: z.boolean().default(true),
+      notifyOnDepart: z.boolean().default(true),
+    })
+    .default({}),
   antifraud: z
     .object({
       geofence: z

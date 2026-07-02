@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0 — presence reminders (clock in/out when you arrive/leave)
+
+Feedback round 3 (Ben): notify people to clock in when they join the work
+Wi-Fi, and to clock out when they leave.
+
+- **Presence reminders**: set a Notify service + Presence entity per employee
+  (Admin → Employees, dropdowns discovered live from HA — device_tracker,
+  person, connectivity binary_sensor, or a companion-app Wi-Fi SSID sensor),
+  toggle on in Admin → Settings → Presence reminders. When someone arrives an
+  actionable **"Clock in?"** notification lands on their phone; when they
+  leave, **"Clock out?"**. One tap punches. Never auto-punches (Callum keeps
+  control); arrive/depart grace periods absorb Wi-Fi flapping; a cold start
+  never fires a burst of notifications.
+- Runs **inside the add-on** (polls HA, debounces, sends the notifications) —
+  **no per-employee HA automations**, so roster changes never reload anything
+  on the box.
+- The only HA-side addition is one tiny **static** automation
+  (`timeclock_notify_actions`) that turns a notification button tap into a
+  punch. It lives in its own package file (`timeclock_automation.yaml`),
+  separate from the roster scripts (`timeclock.yaml`) and the rest_command
+  (`timeclock_handlers.yaml`), so `automation.reload` fires only on an add-on
+  upgrade that revises the handler — never on roster edits or key rotation.
+  Still never `homeassistant.reload_all`.
+- Hardening: notify-service string is strictly validated before use, and
+  employee display-name slug collisions no longer produce duplicate YAML keys.
+- DB: employees gain nullable `notify_service` / `presence_entity`
+  (migration 0010). 155 tests (new presence unit + integration suites).
+
 ## 0.3.0 — UI overhaul + stop disturbing the rest of Home Assistant
 
 Feedback round 2 (Ben): "it's crashing HA", "navigation and UI suck",

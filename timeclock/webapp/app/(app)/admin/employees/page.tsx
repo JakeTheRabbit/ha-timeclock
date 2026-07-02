@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { KeyRound, TabletSmartphone, UserPlus } from "lucide-react";
+import { BellRing, ChevronDown, KeyRound, TabletSmartphone, UserPlus } from "lucide-react";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { cn } from "@/lib/utils";
@@ -38,9 +38,21 @@ interface Emp {
   active: boolean;
   haUsername: string | null;
   hasPin: boolean;
+  notifyService: string | null;
+  presenceEntity: string | null;
+}
+
+interface HaEntities {
+  available: boolean;
+  presence: { entity_id: string; name: string; state: string }[];
+  notify: string[];
 }
 
 const ROLES = ["employee", "lead", "manager", "admin"] as const;
+
+// Radix Select forbids empty-string item values, so the "clear" option uses a
+// sentinel that we translate back to "" (server stores that as NULL) on change.
+const NONE = "__none__";
 
 const errMsg = (e: unknown) =>
   e instanceof ApiError ? `Error ${e.status}: ${JSON.stringify(e.body)}` : "Request failed";
@@ -57,6 +69,14 @@ export default function EmployeesAdminPage() {
   const list = useQuery({
     queryKey: ["admin-employees"],
     queryFn: () => apiGet<{ employees: Emp[] }>("/admin/employees"),
+    enabled: session?.employee.role === "admin",
+    retry: false,
+  });
+
+  // Fetched once and shared across every employee card's presence pickers.
+  const haEntities = useQuery({
+    queryKey: ["ha-entities"],
+    queryFn: () => apiGet<HaEntities>("/admin/ha-entities"),
     enabled: session?.employee.role === "admin",
     retry: false,
   });
@@ -314,6 +334,132 @@ export default function EmployeesAdminPage() {
                 <KeyRound /> Set PIN
               </Button>
             </div>
+
+            <details className="group rounded-md border border-border">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+                <BellRing className="size-4" />
+                Presence reminders
+                <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="flex flex-col gap-3 border-t border-border p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <Label
+                      htmlFor={`notify-${e.id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Notify service
+                    </Label>
+                    {haEntities.data && !haEntities.data.available ? (
+                      <FreeTextField
+                        id={`notify-${e.id}`}
+                        value={e.notifyService}
+                        placeholder="notify.mobile_app_x"
+                        onSave={(v) =>
+                          patch.mutate({ id: e.id, data: { notifyService: v } })
+                        }
+                      />
+                    ) : (
+                      <Select
+                        value={e.notifyService ?? NONE}
+                        onValueChange={(v) =>
+                          patch.mutate({
+                            id: e.id,
+                            data: { notifyService: v === NONE ? "" : v },
+                          })
+                        }
+                      >
+                        <SelectTrigger id={`notify-${e.id}`} className="font-mono">
+                          <SelectValue placeholder="— none —" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE} className="text-muted-foreground">
+                            — none —
+                          </SelectItem>
+                          {haEntities.data?.notify.map((n) => (
+                            <SelectItem key={n} value={n} className="font-mono">
+                              {n}
+                            </SelectItem>
+                          ))}
+                          {/* Keep a stale/custom value selectable so it isn't silently dropped. */}
+                          {e.notifyService &&
+                            !haEntities.data?.notify.includes(e.notifyService) && (
+                              <SelectItem
+                                value={e.notifyService}
+                                className="font-mono"
+                              >
+                                {e.notifyService}
+                              </SelectItem>
+                            )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label
+                      htmlFor={`presence-${e.id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Presence entity
+                    </Label>
+                    {haEntities.data && !haEntities.data.available ? (
+                      <FreeTextField
+                        id={`presence-${e.id}`}
+                        value={e.presenceEntity}
+                        placeholder="device_tracker.phone"
+                        onSave={(v) =>
+                          patch.mutate({ id: e.id, data: { presenceEntity: v } })
+                        }
+                      />
+                    ) : (
+                      <Select
+                        value={e.presenceEntity ?? NONE}
+                        onValueChange={(v) =>
+                          patch.mutate({
+                            id: e.id,
+                            data: { presenceEntity: v === NONE ? "" : v },
+                          })
+                        }
+                      >
+                        <SelectTrigger id={`presence-${e.id}`}>
+                          <SelectValue placeholder="— none —" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE} className="text-muted-foreground">
+                            — none —
+                          </SelectItem>
+                          {haEntities.data?.presence.map((p) => (
+                            <SelectItem key={p.entity_id} value={p.entity_id}>
+                              <span className="flex flex-col items-start">
+                                <span>{p.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {p.entity_id} · {p.state}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                          {e.presenceEntity &&
+                            !haEntities.data?.presence.some(
+                              (p) => p.entity_id === e.presenceEntity,
+                            ) && (
+                              <SelectItem value={e.presenceEntity}>
+                                {e.presenceEntity}
+                              </SelectItem>
+                            )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+                {haEntities.data && !haEntities.data.available && (
+                  <p className="text-xs text-muted-foreground">
+                    HA discovery is unavailable — enter the notify service and
+                    presence entity IDs manually.
+                  </p>
+                )}
+              </div>
+            </details>
           </CardContent>
         </Card>
       ))}
@@ -421,6 +567,49 @@ function HaUsernameField({
         if (e.key === "Enter") e.currentTarget.blur();
       }}
       placeholder="HA username"
+      className="font-mono"
+      autoComplete="off"
+    />
+  );
+}
+
+/**
+ * Free-text fallback for a presence mapping when HA discovery is unavailable.
+ * Commits on blur / Enter; empty string clears the mapping (server -> NULL).
+ */
+function FreeTextField({
+  id,
+  value,
+  placeholder,
+  onSave,
+}: {
+  id: string;
+  value: string | null;
+  placeholder: string;
+  onSave: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next === (value ?? "")) return;
+    onSave(next);
+  };
+
+  return (
+    <Input
+      id={id}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      placeholder={placeholder}
       className="font-mono"
       autoComplete="off"
     />
