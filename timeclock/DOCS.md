@@ -133,7 +133,7 @@ added as a widget too, to see current status at a glance.
 People forget to punch. When someone's phone joins the work network, the add-on
 can send them a **"Clock in?"** notification with a one-tap button; when they
 leave, a **"Clock out?"** one. It is **notify-only — it never auto-punches**.
-The human always taps (Callum kept control on purpose: supply runs, stepping
+The human always taps (keeping control is deliberate: supply runs, stepping
 out mid-shift, and working off-site shouldn't be clocked automatically). No tap,
 no punch.
 
