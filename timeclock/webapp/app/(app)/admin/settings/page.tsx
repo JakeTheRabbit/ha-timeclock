@@ -156,9 +156,13 @@ function IntegrationSection() {
   });
 
   const rotate = useMutation({
-    mutationFn: () => api("/admin/integration/key", { method: "POST" }),
-    onSuccess: () => {
-      toast.success("New API key generated; installed package updated.");
+    mutationFn: () => api<{ apiKey: string; haReloaded: boolean | null }>("/admin/integration/key", { method: "POST" }),
+    onSuccess: (res) => {
+      if (res.haReloaded === false) {
+        toast.warning("New API key generated, but Home Assistant didn't reload it — restart HA once so clock buttons keep working.");
+      } else {
+        toast.success("New API key generated; installed package updated.");
+      }
       qc.invalidateQueries({ queryKey: ["integration"] });
     },
     onError: (e) =>
