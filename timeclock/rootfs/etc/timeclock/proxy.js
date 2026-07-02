@@ -25,6 +25,9 @@ const SENTINEL = process.env.SENTINEL || '/ha-ingress';
 const upstream = new URL(UPSTREAM);
 
 // Only rewrite text-ish payloads; never touch fonts/images/wasm.
+// text/x-component = Next.js RSC flight payloads (client-side navigation).
+// Missing it meant router/history state kept raw sentinel URLs -> the in-app
+// back button / history nav requested /ha-ingress/* against the HA host -> 404.
 const REWRITE_TYPES = [
   'text/html',
   'application/javascript',
@@ -32,6 +35,7 @@ const REWRITE_TYPES = [
   'text/css',
   'application/json',
   'application/manifest+json',
+  'text/x-component',
 ];
 
 function isRewritable(contentType) {
