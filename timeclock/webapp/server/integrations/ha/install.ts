@@ -204,8 +204,16 @@ function writeIfChanged(file: string, content: string | Buffer): boolean {
   return true;
 }
 
+export interface ReloadResult {
+  /** true when every reload that was attempted succeeded (or none was needed). */
+  ok: boolean;
+  /** the rest_command reload (key/URL propagation) specifically succeeded. */
+  restCommandOk: boolean;
+  attempted: string[];
+}
+
 /** Write all package files + card; reload only the domains whose file changed. */
-async function writeAndReload(): Promise<void> {
+async function writeAndReload(): Promise<ReloadResult> {
   mkdirSync(path.join(HA_CONFIG, "packages"), { recursive: true });
   mkdirSync(path.join(HA_CONFIG, "www"), { recursive: true });
   const scriptsChanged = writeIfChanged(scriptsPath(), await buildScriptsYaml());
@@ -223,29 +231,40 @@ async function writeAndReload(): Promise<void> {
   // only when the add-on ships a revised handler, never on roster/key edits or
   // a no-change boot.
   if (automationChanged) reloads.push("automation/reload");
-  await reload(reloads);
+
+  const failed = await reload(reloads);
+  return {
+    ok: failed.length === 0,
+    restCommandOk: !failed.includes("rest_command/reload"),
+    attempted: reloads,
+  };
 }
 
-export async function installIntegration(): Promise<IntegrationStatus> {
+export async function installIntegration(): Promise<IntegrationStatus & { reload: ReloadResult }> {
   if (!existsSync(HA_CONFIG)) {
     throw new Error(`HA config not mounted at ${HA_CONFIG} (map: homeassistant_config missing?)`);
   }
-  await writeAndReload();
-  return integrationStatus();
+  const reload = await writeAndReload();
+  return { ...(await integrationStatus()), reload };
 }
 
-/** Once installed, keep generated files current without admin action. */
-export async function refreshIntegrationIfInstalled(): Promise<void> {
+/**
+ * Once installed, keep generated files current without admin action. Returns
+ * the reload result so callers that change dynamic content (key rotation) can
+ * tell the admin whether HA actually picked it up; null when not installed.
+ */
+export async function refreshIntegrationIfInstalled(): Promise<ReloadResult | null> {
   // Only refresh if the integration was previously installed (any generated
   // file present). If everything is byte-identical this is a full no-op — no
   // reload is issued (see writeAndReload + the empty-list guard in reload()).
   if (!existsSync(scriptsPath()) && !existsSync(handlersPath()) && !existsSync(automationPath())) {
-    return;
+    return null;
   }
   try {
-    await writeAndReload();
+    return await writeAndReload();
   } catch (e) {
     console.error("[ha-install] refresh failed:", e instanceof Error ? e.message : e);
+    return { ok: false, restCommandOk: false, attempted: [] };
   }
 }
 
@@ -255,19 +274,33 @@ export async function refreshIntegrationIfInstalled(): Promise<void> {
  * on the box mid-run. `automation.reload` is only ever passed here when the
  * fully-static automation file changed (an add-on upgrade that revises the
  * handler) — never on roster edits, key rotation, or a no-change boot. An empty
- * list is a hard no-op (no HTTP call at all).
+ * list is a hard no-op (no HTTP call at all). Returns the services that failed.
  */
-async function reload(services: string[]): Promise<void> {
+async function reload(services: string[]): Promise<string[]> {
   const token = process.env.SUPERVISOR_TOKEN;
-  if (!token || services.length === 0) return;
+  if (!token || services.length === 0) return [];
+  const failed: string[] = [];
   for (const svc of services) {
-    const res = await fetchImpl(`http://supervisor/core/api/services/${svc}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: "{}",
-    });
-    if (!res.ok) console.error(`[ha-install] ${svc}: ${res.status}`);
+    try {
+      const res = await fetchImpl(`http://supervisor/core/api/services/${svc}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: "{}",
+      });
+      if (!res.ok) {
+        failed.push(svc);
+        const body = await res.text().catch(() => "");
+        // Body captured so a future failure is self-diagnosing (a facility with
+        // a pre-existing bad rest_command/automation elsewhere can make a
+        // domain reload 400 through no fault of ours).
+        console.error(`[ha-install] ${svc}: ${res.status} ${body.slice(0, 300)}`);
+      }
+    } catch (e) {
+      failed.push(svc);
+      console.error(`[ha-install] ${svc} threw:`, e instanceof Error ? e.message : e);
+    }
   }
+  return failed;
 }
 
 // Injectable for tests.

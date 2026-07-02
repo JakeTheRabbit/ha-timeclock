@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 — make API-key rotation honest about HA reloads
+
+- On the box, `rest_command.reload` can return 400 (e.g. a pre-existing
+  rest_command elsewhere in a big facility config failing strict reload
+  validation). It's harmless when rest_command content is unchanged, but on an
+  API-key rotation a silent failure would leave HA sending the OLD key →
+  punches 401 until an HA restart. The reload path now: (1) logs the HA
+  response body so the cause is diagnosable, (2) returns per-service success,
+  and (3) the "Rotate API key" action reports whether HA actually reloaded —
+  the UI warns "restart HA once" if it didn't. No behavior change when reloads
+  succeed. Still never `homeassistant.reload_all`.
+
 ## 0.4.0 — presence reminders (clock in/out when you arrive/leave)
 
 Feedback round 3 (Ben): notify people to clock in when they join the work
