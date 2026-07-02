@@ -74,8 +74,128 @@ export default function SettingsPage() {
         {parseError && <span className="text-xs text-rose-400">JSON: {parseError}</span>}
         {msg && <span className="text-sm text-slate-400">{msg}</span>}
       </div>
+      <IntegrationSection />
       <Link href="/manager" className="text-sm text-slate-500 underline">← manager</Link>
     </Shell>
+  );
+}
+
+interface IntegrationInfo {
+  apiKey: string;
+  status: {
+    haConfigMounted: boolean;
+    packageInstalled: boolean;
+    cardInstalled: boolean;
+    packagesIncludeConfigured: boolean | null;
+    addonUrl: string;
+  };
+  packageYaml: string | null;
+}
+
+/**
+ * Dashboard card + Android companion widgets. One click writes the generated
+ * package (rest_command + per-employee toggle scripts) and the card into HA
+ * config; the YAML preview covers manual installs.
+ */
+function IntegrationSection() {
+  const qc = useQueryClient();
+  const [msg, setMsg] = useState<string | null>(null);
+  const info = useQuery({
+    queryKey: ["integration"],
+    queryFn: () => apiGet<IntegrationInfo>("/admin/integration"),
+  });
+
+  const install = useMutation({
+    mutationFn: () => api("/admin/integration/install", { method: "POST" }),
+    onSuccess: () => {
+      setMsg("Installed. If this is the first install, restart Home Assistant once.");
+      qc.invalidateQueries({ queryKey: ["integration"] });
+    },
+    onError: () => setMsg("Install failed — is the add-on updated with config access?"),
+  });
+  const rotate = useMutation({
+    mutationFn: () => api("/admin/integration/key", { method: "POST" }),
+    onSuccess: () => {
+      setMsg("New API key generated; installed package updated.");
+      qc.invalidateQueries({ queryKey: ["integration"] });
+    },
+  });
+
+  const s = info.data?.status;
+  const Badge = ({ ok, label }: { ok: boolean | null; label: string }) => (
+    <span
+      className={`rounded px-2 py-0.5 text-xs ${
+        ok ? "bg-emerald-900 text-emerald-300" : ok === false ? "bg-rose-950 text-rose-400" : "bg-slate-800 text-slate-400"
+      }`}
+    >
+      {label}: {ok ? "yes" : ok === false ? "no" : "?"}
+    </span>
+  );
+
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+      <h2 className="font-semibold">Home Assistant integration</h2>
+      <p className="text-sm text-slate-400">
+        Installs the <span className="font-mono">timeclock-card</span> dashboard card and
+        per-employee clock in/out scripts (used by Android companion-app widgets).
+      </p>
+      {s && (
+        <div className="flex flex-wrap gap-2">
+          <Badge ok={s.haConfigMounted} label="config access" />
+          <Badge ok={s.packageInstalled} label="package" />
+          <Badge ok={s.cardInstalled} label="card" />
+          <Badge ok={s.packagesIncludeConfigured} label="packages include" />
+        </div>
+      )}
+      {s?.packagesIncludeConfigured === false && (
+        <p className="rounded bg-amber-950/60 p-2 text-xs text-amber-300">
+          Add this line under <span className="font-mono">homeassistant:</span> in
+          configuration.yaml, then restart HA once:{" "}
+          <span className="font-mono">packages: !include_dir_named packages</span>
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => install.mutate()}
+          disabled={install.isPending}
+          className="rounded-lg bg-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40"
+        >
+          {s?.packageInstalled ? "Reinstall / refresh" : "Install into Home Assistant"}
+        </button>
+        <button
+          onClick={() => rotate.mutate()}
+          disabled={rotate.isPending}
+          className="rounded-lg bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700 disabled:opacity-40"
+        >
+          {info.data?.apiKey ? "Rotate API key" : "Generate API key"}
+        </button>
+        {msg && <span className="text-sm text-slate-400">{msg}</span>}
+      </div>
+      <details className="text-xs text-slate-400">
+        <summary className="cursor-pointer">Setup checklist & manual YAML</summary>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>Click Install (writes packages/timeclock.yaml + www/timeclock-card.js).</li>
+          <li>
+            First time only: ensure the packages include line above exists, add the dashboard
+            resource <span className="font-mono">/local/timeclock-card.js</span> (JavaScript
+            module), and restart HA.
+          </li>
+          <li>
+            Add the card: type <span className="font-mono">custom:timeclock-card</span> in a
+            manual card.
+          </li>
+          <li>
+            Android widget: Companion app → Settings → Widgets → add a Template/Actions
+            widget that runs <span className="font-mono">script.timeclock_&lt;name&gt;_toggle</span>.
+          </li>
+        </ol>
+        {info.data?.packageYaml && (
+          <pre className="mt-2 max-h-64 overflow-auto rounded bg-slate-950 p-3 font-mono">
+            {info.data.packageYaml}
+          </pre>
+        )}
+      </details>
+    </section>
   );
 }
 

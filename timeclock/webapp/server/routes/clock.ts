@@ -11,6 +11,7 @@ import { getSettings } from "@/server/domain/settings";
 import { geofenceFlag } from "@/server/domain/antifraud/geofence";
 import { ipFlag } from "@/server/domain/antifraud/ip-lock";
 import { savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
+import { schedulePush } from "@/server/integrations/ha/state-push";
 
 const clockInSchema = z.object({
   jobId: z.string().uuid().nullish(),
@@ -154,6 +155,7 @@ export const clock = new Hono<AppEnv>()
         fraudFlags: flags,
       },
     });
+    schedulePush();
     return c.json({ ok: true, entryId: entry.id, clockIn: entry.clockIn, fraudFlags: flags }, 201);
   })
 
@@ -225,6 +227,7 @@ export const clock = new Hono<AppEnv>()
       actorId: me.id,
       newValue: { clockOut: now.toISOString(), workedMinutes: worked, autoDeductedMin: deduct },
     });
+    schedulePush();
     return c.json({ ok: true, workedMinutes: worked, autoDeductedMin: deduct });
   })
 
@@ -247,6 +250,7 @@ export const clock = new Hono<AppEnv>()
       actorId: me.id,
       newValue: { paid: b.paid, startAt: b.startAt.toISOString() },
     });
+    schedulePush();
     return c.json({ ok: true, breakId: b.id }, 201);
   })
 
@@ -266,6 +270,7 @@ export const clock = new Hono<AppEnv>()
       actorId: me.id,
       newValue: { endAt: now.toISOString() },
     });
+    schedulePush();
     return c.json({ ok: true });
   })
 
@@ -300,6 +305,7 @@ export const clock = new Hono<AppEnv>()
       actorId: me.id,
       newValue: { clockIn: now.toISOString(), jobId: body.data.jobId, prevEntryId: entry.id },
     });
+    schedulePush();
     return c.json({ ok: true, entryId: next.id });
   })
 

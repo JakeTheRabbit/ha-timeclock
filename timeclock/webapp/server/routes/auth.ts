@@ -6,6 +6,7 @@ import { getDb } from "@/db/client";
 import { employees } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { verifyPin, pinRateCheck, pinRateFail, pinRateReset } from "@/server/auth/pin";
+import { findEmployeeForHaIdentity } from "@/server/auth/employee-link";
 import {
   createSession,
   revokeSession,
@@ -20,16 +21,24 @@ import {
   DEVICE_COOKIE_MAX_AGE,
 } from "@/server/auth/device";
 import { appendAudit } from "@/server/domain/audit/writer";
+import { getSettings } from "@/server/domain/settings";
 
 const pinLoginSchema = z.object({
   employeeId: z.string().uuid(),
   pin: z.string().min(4).max(12),
 });
 
+// Set on explicit sign-out so HA SSO doesn't immediately log the same person
+// back in — a shared kiosk must be able to switch users via PIN. Cleared by
+// the next PIN login; expires on its own after 12h.
+export const SSO_OPTOUT_COOKIE = "tc_sso_off";
+
 export const auth = new Hono<AppEnv>()
 
-  // Kiosk PIN-pad grid: active employees who can log in. Names only — reachable
-  // by anyone who can open the panel (HA-authenticated LAN users).
+  // Kiosk PIN-pad grid: active employees. Names only — reachable by anyone who
+  // can open the panel (HA-authenticated LAN users). Employees without a PIN
+  // are included (shown disabled) so a missing PIN reads as "ask the admin",
+  // not "my account vanished".
   .get("/kiosk-employees", async (c) => {
     const rows = await getDb()
       .select({ id: employees.id, displayName: employees.displayName, pinHash: employees.pinHash })
@@ -37,28 +46,54 @@ export const auth = new Hono<AppEnv>()
       .where(eq(employees.active, true))
       .orderBy(employees.displayName);
     return c.json({
-      employees: rows.filter((r) => r.pinHash != null).map(({ id, displayName }) => ({ id, displayName })),
+      employees: rows.map(({ id, displayName, pinHash }) => ({ id, displayName, hasPin: pinHash != null })),
     });
   })
 
   // Who opened the panel (HA identity) + whether they map to an employee.
+  // `bootstrapped` = some employee is already linked to an HA account, i.e.
+  // first-boot claim-admin has happened.
   .get("/whoami", async (c) => {
     const ha = c.get("haIdentity");
-    let mapped = null;
-    if (ha) {
-      const rows = await getDb()
-        .select({ id: employees.id, displayName: employees.displayName, role: employees.role })
-        .from(employees)
-        .where(and(eq(employees.haUsername, ha.haUserId), eq(employees.active, true)))
-        .limit(1);
-      mapped = rows[0] ?? null;
-    }
-    return c.json({ ha, employee: mapped });
+    const mapped = ha ? await findEmployeeForHaIdentity(ha) : null;
+    const anyMapped = await getDb().query.employees.findFirst({
+      where: (e, { isNotNull: notNull }) => notNull(e.haUsername),
+    });
+    return c.json({
+      ha,
+      employee: mapped
+        ? { id: mapped.id, displayName: mapped.displayName, role: mapped.role }
+        : null,
+      bootstrapped: anyMapped != null,
+    });
   })
 
-  // Current employee session (kiosk PIN login), for use-session.
-  .get("/session", (c) => {
-    const auth = c.get("auth");
+  // Current employee session, for use-session. HA SSO lives here: when there
+  // is no cookie session but the panel opener's HA account maps to an active
+  // employee, sign them in silently — an employee's session follows whatever
+  // HA account they're logged into, on any device. Suppressed after an
+  // explicit sign-out (opt-out cookie) so kiosks can switch users via PIN.
+  .get("/session", async (c) => {
+    let auth = c.get("auth");
+    if (!auth) {
+      const ha = c.get("haIdentity");
+      if (ha && !getCookie(c, SSO_OPTOUT_COOKIE)) {
+        const employee = await findEmployeeForHaIdentity(ha);
+        if (employee) {
+          const session = await createSession({
+            employeeId: employee.id,
+            haUserId: ha.haUserId,
+            haUserName: ha.haUserName,
+          });
+          setCookie(c, SESSION_COOKIE, encodeSessionCookie(session.id), {
+            httpOnly: true,
+            sameSite: "Lax",
+            path: "/",
+          });
+          auth = { session, employee };
+        }
+      }
+    }
     if (!auth) return c.json({ session: null }, 200);
     const { employee, session } = auth;
     return c.json({
@@ -119,7 +154,9 @@ export const auth = new Hono<AppEnv>()
     return c.json({ claimed: true, employee: { id: updated.id, role: updated.role } });
   })
 
-  // Kiosk PIN login. Requires a bound device; the very first login on a fresh
+  // Kiosk PIN login. Device binding is an optional antifraud control
+  // (settings.kiosk.requireDeviceBinding, default off — every request already
+  // rode in through HA auth). When required, the very first login on a fresh
   // install auto-binds the device (zero-devices bootstrap), audited.
   .post("/pin-login", async (c) => {
     const body = pinLoginSchema.safeParse(await c.req.json().catch(() => null));
@@ -128,7 +165,7 @@ export const auth = new Hono<AppEnv>()
     const db = getDb();
 
     let device = await loadDevice(getCookie(c, DEVICE_COOKIE));
-    if (!device) {
+    if (!device && (await getSettings()).kiosk.requireDeviceBinding) {
       if ((await countDevices()) === 0) {
         const reg = await registerDevice("Kiosk 1 (auto-bound)");
         device = reg.device;
@@ -150,7 +187,7 @@ export const auth = new Hono<AppEnv>()
       }
     }
 
-    const rateKey = `${employeeId}:${device.id}`;
+    const rateKey = `${employeeId}:${device?.id ?? "unbound"}`;
     const rate = pinRateCheck(rateKey);
     if (!rate.allowed) {
       return c.json({ error: "rate_limited", retryInMs: rate.retryInMs }, 429);
@@ -169,7 +206,7 @@ export const auth = new Hono<AppEnv>()
     const ha = c.get("haIdentity");
     const session = await createSession({
       employeeId: employee.id,
-      deviceId: device.id,
+      deviceId: device?.id ?? null,
       haUserId: ha?.haUserId ?? null,
       haUserName: ha?.haUserName ?? null,
     });
@@ -178,6 +215,7 @@ export const auth = new Hono<AppEnv>()
       sameSite: "Lax",
       path: "/",
     });
+    deleteCookie(c, SSO_OPTOUT_COOKIE, { path: "/" });
     return c.json({
       ok: true,
       employee: { id: employee.id, displayName: employee.displayName, role: employee.role },
@@ -188,5 +226,11 @@ export const auth = new Hono<AppEnv>()
     const auth = c.get("auth");
     if (auth) await revokeSession(auth.session.id);
     deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    setCookie(c, SSO_OPTOUT_COOKIE, "1", {
+      httpOnly: true,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 12 * 3600,
+    });
     return c.json({ ok: true });
   });
