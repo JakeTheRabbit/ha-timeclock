@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — fix sensor push on small-ICU Node (Alpine)
+
+- `nzDateOf`/pay-period date strings were built with locale `.format()`;
+  Alpine Node ships English-only ICU so en-CA fell back to M/D/YYYY and
+  every downstream parse failed ("Invalid time value" — ha-push dead, no
+  sensors). Now assembled from `formatToParts` (locale-proof) and the image
+  installs `icu-data-full` so human-facing en-NZ dates render correctly.
+
 ## 0.2.0 — HA SSO, dashboard card, Android widgets
 
 Feedback round (Callum): clock in/out from anywhere, accounts that follow the
