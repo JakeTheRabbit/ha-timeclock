@@ -94,14 +94,39 @@ run("P2 auth flow (real Postgres)", () => {
     expect(audit.rows.map((r) => r.action)).toContain("claim_admin");
   });
 
-  it("kiosk employee grid lists only PIN-enabled staff", async () => {
+  it("kiosk employee grid lists everyone, flagging who has a PIN", async () => {
     const res = await app.request("/api/auth/kiosk-employees");
     const body = await res.json();
-    expect(body.employees).toHaveLength(1); // Stew (admin has no PIN yet)
-    expect(body.employees[0].displayName).toBe("Stew");
+    expect(body.employees).toHaveLength(2); // admin (no PIN) + Stew
+    const stew = body.employees.find((e: { displayName: string }) => e.displayName === "Stew");
+    expect(stew.hasPin).toBe(true);
+    const rest = body.employees.filter((e: { hasPin: boolean }) => !e.hasPin);
+    expect(rest).toHaveLength(1);
   });
 
-  it("first pin-login auto-binds the kiosk device (zero-devices bootstrap)", async () => {
+  it("pin-login works from any browser by default (no device binding)", async () => {
+    const res = await app.request("/api/auth/pin-login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ employeeId, pin: "2468" }),
+    });
+    expect(res.status).toBe(200);
+    employeeCookie = cookieOf(res, "tc_session")!;
+    expect(employeeCookie).toBeTruthy();
+    expect(cookieOf(res, "tc_device")).toBeNull(); // nothing bound
+
+    const devs = await admin.query("SELECT count(*)::int AS n FROM devices");
+    expect(devs.rows[0].n).toBe(0);
+  });
+
+  it("with binding required: first pin-login auto-binds (zero-devices bootstrap)", async () => {
+    const patch = await app.request("/api/admin/settings", {
+      method: "PATCH",
+      headers: { cookie: `tc_session=${adminCookie}`, "content-type": "application/json" },
+      body: JSON.stringify({ kiosk: { requireDeviceBinding: true } }),
+    });
+    expect(patch.status).toBe(200);
+
     const res = await app.request("/api/auth/pin-login", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -111,13 +136,12 @@ run("P2 auth flow (real Postgres)", () => {
     deviceCookie = cookieOf(res, "tc_device")!;
     employeeCookie = cookieOf(res, "tc_session")!;
     expect(deviceCookie).toBeTruthy();
-    expect(employeeCookie).toBeTruthy();
 
     const devs = await admin.query("SELECT count(*)::int AS n FROM devices");
     expect(devs.rows[0].n).toBe(1);
   });
 
-  it("second device (no cookie) is rejected: device_not_bound", async () => {
+  it("second device (no cookie) is rejected while binding is required", async () => {
     const res = await app.request("/api/auth/pin-login", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -166,6 +190,52 @@ run("P2 auth flow (real Postgres)", () => {
       headers: { cookie: `tc_session=${employeeCookie}` },
     });
     expect((await after.json()).session).toBeNull();
+  });
+
+  it("HA SSO: a mapped HA account is signed in automatically on /session", async () => {
+    // Ben claimed admin earlier -> employees.ha_username = "ha-user-demo".
+    const res = await app.request("/api/auth/session", { headers: HA_HEADERS });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.session).not.toBeNull();
+    expect(body.session.employee.role).toBe("admin");
+    expect(cookieOf(res, "tc_session")).toBeTruthy();
+  });
+
+  it("sign-out suppresses SSO (opt-out cookie) so kiosks can switch users", async () => {
+    const sso = await app.request("/api/auth/session", { headers: HA_HEADERS });
+    const cookie = cookieOf(sso, "tc_session")!;
+
+    const out = await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: { ...HA_HEADERS, cookie: `tc_session=${cookie}` },
+    });
+    const optOut = cookieOf(out, "tc_sso_off");
+    expect(optOut).toBeTruthy();
+
+    const after = await app.request("/api/auth/session", {
+      headers: { ...HA_HEADERS, cookie: `tc_sso_off=${optOut}` },
+    });
+    expect((await after.json()).session).toBeNull();
+  });
+
+  it("SSO also matches a human-entered HA username, case-insensitively", async () => {
+    const patch = await app.request(`/api/admin/employees/${employeeId}`, {
+      method: "PATCH",
+      headers: { cookie: `tc_session=${adminCookie}`, "content-type": "application/json" },
+      body: JSON.stringify({ haUsername: "Stew" }),
+    });
+    expect(patch.status).toBe(200);
+
+    const res = await app.request("/api/auth/session", {
+      headers: {
+        "x-remote-user-id": "some-opaque-uuid",
+        "x-remote-user-name": "stew",
+        "x-remote-user-display-name": "Stewart",
+      },
+    });
+    const body = await res.json();
+    expect(body.session?.employee.displayName).toBe("Stew");
   });
 
   it("audit chain remains intact after the whole flow", async () => {

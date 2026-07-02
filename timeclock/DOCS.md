@@ -37,8 +37,83 @@ an immutable, hash-chained audit trail.
 
 1. Install, start, open the sidebar panel.
 2. Tap **First-time setup: claim admin** (the first HA user becomes Admin).
-3. Admin → Employees: add staff + PINs; bind the wall tablet as a kiosk.
+3. Admin → Employees: add staff + PINs, and set each person's **HA username**
+   so their HA login signs them in automatically (see below).
 4. Settings: adjust overtime/rounding/pay-period anchor/anti-fraud as needed.
+5. Settings → **Home Assistant integration** → Install (dashboard card +
+   widget scripts).
+
+## Signing in: HA SSO + kiosk PINs
+
+- **HA SSO (default)** — an employee whose `HA username` matches the HA account
+  they opened the panel with is signed in automatically, on any device. The
+  field accepts either the HA username (case-insensitive) or the opaque HA
+  user id. Signing out shows the PIN pad and suppresses SSO for 12 h (or until
+  the next PIN login), so a shared kiosk can switch users freely.
+- **Kiosk PINs** — the staff grid shows everyone; people without a PIN appear
+  greyed out until an admin sets one.
+- **Device binding is OFF by default** (`settings.kiosk.requireDeviceBinding`).
+  Every request already arrives HA-authenticated through Ingress, so PINs work
+  from any browser. Turn it on to restrict PIN login to admin-bound kiosk
+  devices (Admin → Settings JSON), e.g. to stop punches from personal phones.
+
+## Dashboard card (`timeclock-card`)
+
+Admin → Settings → **Home Assistant integration → Install** writes:
+
+- `packages/timeclock.yaml` — `rest_command.timeclock_punch` + one
+  `script.timeclock_<name>_toggle` per employee (regenerated automatically when
+  the roster or API key changes, and on every add-on start).
+- `www/timeclock-card.js` — the dashboard card (auto-updated on add-on updates).
+
+One-time HA prep:
+
+1. `configuration.yaml` needs `homeassistant: packages: !include_dir_named packages`
+   (the Integration panel shows whether this is detected), then restart HA.
+2. Settings → Dashboards → Resources → add `/local/timeclock-card.js` as a
+   **JavaScript module**.
+3. Add a manual card: `type: custom:timeclock-card`.
+
+The card shows per-person live status + today/week totals with one-tap clock
+in/out, a punch log, week/month/quarter/year totals, and graphs (stacked daily
+bars, 26-week trend lines, a punch map that draws every shift at its real time
+of day, and a year-total race). All data comes from `sensor.timeclock_summary`.
+
+## Sensors pushed to HA
+
+| Entity | State | Notes |
+| ------ | ----- | ----- |
+| `sensor.timeclock_summary` | people clocked in | attributes carry the full per-employee dataset the card renders |
+| `sensor.timeclock_<name>` | `in` / `break` / `out` | today/week/month/quarter/year hour attributes — automate on it |
+| `sensor.timeclock_<name>_today` | hours today | numeric, for native HA history graphs |
+
+Updated ~2 s after every punch and every 5 minutes in between. If recorder
+bloat bothers you, exclude `sensor.timeclock_summary` from recorder.
+
+## Android widget (companion app)
+
+Employees can clock in/out from their phone home screen — no need to be at
+the kiosk (supply runs, lunch, working off-site):
+
+1. Install the integration (above) — this creates
+   `script.timeclock_<name>_toggle` for every employee.
+2. In the **HA Companion app**: long-press the home screen → Widgets →
+   **Home Assistant** → *Actions* (button) widget.
+3. Pick the person's `Time Clock: <name> in/out` script, give it a label/icon.
+
+One tap toggles their clock; the punch is audited exactly like a kiosk punch
+(times recorded, visible in Manager → audit). `sensor.timeclock_<name>` can be
+added as a widget too, to see current status at a glance.
+
+## External API (what the widgets call)
+
+`POST /api/ext/punch` on the add-on (internal hostname, port 8099) with header
+`x-timeclock-key: <API key>`; body `{"employee": "<id|ha-username|name>",
+"action": "in"|"out"|"toggle"}`. Also `GET /api/ext/summary` and
+`GET /api/ext/status/<employee>`. The key lives in Admin → Settings →
+Integration (rotate any time; the installed package updates itself). Punches
+dispatch through the same code path as kiosk punches — auto-deduct, audit, and
+anti-fraud settings all apply.
 
 ## How Ingress routing works (why there's a proxy)
 

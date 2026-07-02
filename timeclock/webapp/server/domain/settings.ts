@@ -58,6 +58,21 @@ export const settingsSchema = z.object({
         .default({}),
     })
     .default({}),
+  kiosk: z
+    .object({
+      // Off by default: every panel request already carries HA auth via
+      // Ingress. On = PIN login only works on admin-bound kiosk devices.
+      requireDeviceBinding: z.boolean().default(false),
+    })
+    .default({}),
+  integration: z
+    .object({
+      // API key for the external clock API (dashboard card actions + Android
+      // companion widgets). Empty = external API disabled; generate it from
+      // Admin → Settings → Integration.
+      apiKey: z.string().default(""),
+    })
+    .default({}),
   antifraud: z
     .object({
       geofence: z

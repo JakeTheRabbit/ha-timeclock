@@ -2,6 +2,8 @@ import cron from "node-cron";
 import { runAutoClockout } from "./auto-clockout";
 import { runDbBackup } from "./db-backup";
 import { runAccrual } from "@/server/domain/leave/accrual";
+import { pushTimeclockStates } from "@/server/integrations/ha/state-push";
+import { refreshIntegrationIfInstalled } from "@/server/integrations/ha/install";
 import { APP_TZ } from "@/lib/tz";
 
 let started = false;
@@ -22,7 +24,15 @@ export function startScheduler(): void {
   // Weekly Monday 03:00 NZ: leave accrual over newly closed entries.
   cron.schedule("0 3 * * 1", () => void safe("leave-accrual", () => runAccrual(null)), opts);
 
-  console.log("[cron] scheduler started (auto-clockout 15m, backup 02:30, accrual Mon 03:00)");
+  // HA sensors: refresh every 5 minutes so live "today" totals keep ticking
+  // between punches; punches themselves push immediately (schedulePush).
+  cron.schedule("*/5 * * * *", () => void safe("ha-push", () => pushTimeclockStates()), opts);
+  void safe("ha-push", () => pushTimeclockStates()); // once at boot
+  // If the HA package/card were installed, refresh them on boot so add-on
+  // updates ship new card versions and the scripts track the roster.
+  void safe("ha-integration-refresh", () => refreshIntegrationIfInstalled());
+
+  console.log("[cron] scheduler started (auto-clockout 15m, backup 02:30, accrual Mon 03:00, ha-push 5m)");
 }
 
 async function safe(name: string, fn: () => Promise<unknown>): Promise<void> {

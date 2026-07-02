@@ -8,11 +8,12 @@ import { PinPad } from "@/components/kiosk/PinPad";
 import { useSession, type SessionEmployee } from "@/hooks/use-session";
 
 interface KioskEmployees {
-  employees: { id: string; displayName: string }[];
+  employees: { id: string; displayName: string; hasPin: boolean }[];
 }
 interface Whoami {
   ha: { haUserId: string; displayName: string | null } | null;
   employee: { id: string; displayName: string; role: string } | null;
+  bootstrapped: boolean;
 }
 
 export default function PinPage() {
@@ -64,7 +65,7 @@ export default function PinPage() {
   });
 
   const showClaim =
-    staff.data?.employees.length === 0 && whoami.data?.ha != null && whoami.data.employee == null;
+    whoami.data?.ha != null && whoami.data.employee == null && !whoami.data.bootstrapped;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-slate-950 p-6 text-slate-100">
@@ -109,23 +110,34 @@ export default function PinPage() {
         <div className="flex max-w-md flex-col items-center gap-4">
           {staff.isLoading && <p className="text-slate-500">Loading staff…</p>}
           <div className="grid grid-cols-2 gap-3">
-            {staff.data?.employees.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => {
-                  setError(null);
-                  setSelected(e);
-                }}
-                className="rounded-xl bg-slate-800 px-6 py-4 text-lg font-medium hover:bg-slate-700"
-              >
-                {e.displayName}
-              </button>
-            ))}
+            {staff.data?.employees.map((e) =>
+              e.hasPin ? (
+                <button
+                  key={e.id}
+                  onClick={() => {
+                    setError(null);
+                    setSelected(e);
+                  }}
+                  className="rounded-xl bg-slate-800 px-6 py-4 text-lg font-medium hover:bg-slate-700"
+                >
+                  {e.displayName}
+                </button>
+              ) : (
+                <div
+                  key={e.id}
+                  className="flex flex-col items-center rounded-xl bg-slate-900 px-6 py-4 text-lg font-medium text-slate-600"
+                  title="No PIN set — ask an admin"
+                >
+                  {e.displayName}
+                  <span className="text-xs font-normal">no PIN set</span>
+                </div>
+              ),
+            )}
           </div>
           {staff.data?.employees.length === 0 && (
             <p className="text-center text-sm text-slate-500">
-              No staff with PINs yet.
-              {whoami.data?.employee ? " Set PINs in Admin → Employees." : ""}
+              No staff yet.
+              {whoami.data?.employee ? " Add them in Admin → Employees." : ""}
             </p>
           )}
           {showClaim && (

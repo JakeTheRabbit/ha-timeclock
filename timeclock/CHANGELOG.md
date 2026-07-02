@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0 — HA SSO, dashboard card, Android widgets
+
+Feedback round (Callum): clock in/out from anywhere, accounts that follow the
+HA login, PINs that work on any computer.
+
+- **HA SSO**: an employee whose *HA username* matches the HA account opening
+  the panel is signed in automatically, on any device. Matches the opaque HA
+  user id or the human username (case-insensitive). Sign-out suppresses SSO
+  for 12 h / until the next PIN login so shared kiosks can switch users.
+- **Fix "PIN doesn't work on another computer"**: device binding is now an
+  opt-in antifraud setting (`kiosk.requireDeviceBinding`, default **off**) —
+  the 403 `device_not_bound` no longer masquerades as a wrong PIN. The kiosk
+  grid also lists staff without PINs (greyed out) instead of hiding them.
+- **Sensors**: `sensor.timeclock_summary` (+ per-employee status and
+  numeric-hours sensors) pushed on every punch and every 5 min.
+- **Dashboard card** (`timeclock-card`): live status tiles with one-tap clock
+  in/out, punch log, week/month/quarter/year totals, and graphs — stacked
+  daily bars, 26-week trends, a punch map (every shift at its real time of
+  day), year race.
+- **Android companion widgets**: one-click integration install generates
+  `script.timeclock_<name>_toggle` per employee (auto-regenerated when the
+  roster changes) — add as an Actions widget to clock in/out from a phone.
+- **External API**: key-authenticated `/api/ext/*` (punch/status/summary);
+  punches run through the same audited path as kiosk punches.
+- New: role-aware home screen; Admin → Settings → Integration panel
+  (install/status/API key). Add-on now maps `homeassistant_config` (rw) to
+  install the package + card.
+
 ## 0.1.3 — fix first-boot: seed the claimable Admin
 
 - Fresh installs had an empty employees table, so "claim admin" returned 409

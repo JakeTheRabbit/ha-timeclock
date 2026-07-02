@@ -1,5 +1,5 @@
 name: Time Clock
-version: "0.1.3"
+version: "0.2.0"
 slug: timeclock
 description: >-
   Employee time-clock system (kiosk-first) with an immutable, hash-chained audit
@@ -19,6 +19,11 @@ panel_title: Time Clock
 hassio_api: true
 homeassistant_api: true
 auth_api: true
+# HA config share (rw): one-click install writes packages/timeclock.yaml
+# (rest_command + widget scripts) and www/timeclock-card.js (dashboard card).
+map:
+  - type: homeassistant_config
+    read_only: false
 # Persisted /data volume holds the Postgres cluster + backups automatically.
 backup: hot
 options:
