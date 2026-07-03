@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, CloudOff, Coffee, KeyRound, LogIn, LogOut } from "lucide-react";
+import { Briefcase, CloudOff, Coffee, KeyRound, LogIn, LogOut, UtensilsCrossed } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -127,8 +127,10 @@ export default function ClockPage() {
         }
       }),
   });
+  // NZ break semantics (matches the compliance engine): 10-min rest breaks are
+  // PAID, the meal break is UNPAID. Employees pick which they're taking.
   const breakStart = useMutation({
-    mutationFn: () => act("/clock/break/start", { paid: false }),
+    mutationFn: (paid: boolean) => act("/clock/break/start", { paid }),
     onSuccess: () => toast.success(t("toast.breakStarted")),
   });
   const breakEnd = useMutation({
@@ -234,41 +236,49 @@ export default function ClockPage() {
             >
               <LogOut className="size-7" aria-hidden="true" /> {t("clock.clockOut")}
             </Button>
-            {/* Secondary row: break + switch job */}
+            {/* Secondary row: rest (paid) vs meal (unpaid) break */}
             <div className="flex w-full gap-3">
               <Button
                 variant="secondary"
                 disabled={busy}
-                onClick={() => breakStart.mutate()}
+                onClick={() => breakStart.mutate(true)}
                 className="h-14 flex-1 rounded-xl text-base"
               >
-                <Coffee className="size-5" aria-hidden="true" /> {t("clock.startBreak")}
+                <Coffee className="size-5" aria-hidden="true" /> {t("clock.restBreak")}
               </Button>
-              {jobList.data && jobList.data.jobs.length > 0 && (
-                <Select
-                  key={open.job?.id ?? "general"}
-                  disabled={busy}
-                  onValueChange={(v) => switchJob.mutate(v)}
-                >
-                  <SelectTrigger
-                    aria-label={t("clock.switchJob")}
-                    className="h-14 min-h-14 flex-1 rounded-xl"
-                  >
-                    <Briefcase className="size-5 shrink-0" aria-hidden="true" />
-                    <SelectValue placeholder={t("clock.switchJobPlaceholder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {jobList.data.jobs
-                      .filter((j) => j.id !== open.job?.id)
-                      .map((j) => (
-                        <SelectItem key={j.id} value={j.id}>
-                          {j.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              )}
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => breakStart.mutate(false)}
+                className="h-14 flex-1 rounded-xl text-base"
+              >
+                <UtensilsCrossed className="size-5" aria-hidden="true" /> {t("clock.mealBreak")}
+              </Button>
             </div>
+            {jobList.data && jobList.data.jobs.length > 0 && (
+              <Select
+                key={open.job?.id ?? "general"}
+                disabled={busy}
+                onValueChange={(v) => switchJob.mutate(v)}
+              >
+                <SelectTrigger
+                  aria-label={t("clock.switchJob")}
+                  className="h-14 min-h-14 w-full rounded-xl"
+                >
+                  <Briefcase className="size-5 shrink-0" aria-hidden="true" />
+                  <SelectValue placeholder={t("clock.switchJobPlaceholder")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobList.data.jobs
+                    .filter((j) => j.id !== open.job?.id)
+                    .map((j) => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         )
       ) : (

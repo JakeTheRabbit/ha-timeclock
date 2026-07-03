@@ -113,6 +113,29 @@ run("P3 clock flow (real Postgres)", () => {
     expect(end.status).toBe(200);
   });
 
+  it("paid rest break: {paid:true} persists and status reports it", async () => {
+    const start = await app.request("/api/clock/break/start", {
+      method: "POST",
+      headers: jsonHeaders(w.employeeCookie),
+      body: JSON.stringify({ paid: true }),
+    });
+    expect(start.status).toBe(201);
+
+    const status = await app.request("/api/clock/status", { headers: jsonHeaders(w.employeeCookie) });
+    const open = (await status.json()).open;
+    expect(open.onBreak.paid).toBe(true);
+
+    // Paid rest breaks are NOT deducted from worked time.
+    const row = await admin.query("SELECT paid FROM breaks ORDER BY created_at DESC LIMIT 1");
+    expect(row.rows[0].paid).toBe(true);
+
+    const end = await app.request("/api/clock/break/end", {
+      method: "POST",
+      headers: jsonHeaders(w.employeeCookie),
+    });
+    expect(end.status).toBe(200);
+  });
+
   it("clock out on a long shift auto-deducts the meal break", async () => {
     // Backdate the open entry to a 7-hour shift (time_entries is mutable truth).
     await admin.query(
