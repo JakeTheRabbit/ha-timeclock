@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.6.0 — native HA theming, live demo, HA profile pictures
+
+Three feature areas so the add-on looks and feels like part of Home Assistant,
+plus a fix for the remaining in-panel navigation 404.
+
+- **Fix "back to Home" 404 inside the HA panel.** Next emitted the app root link
+  as a BARE `/ha-ingress` (basePath root has no trailing slash), which the proxy
+  rewrote to a bare-token URL `/api/hassio_ingress/<token>` — and HA-core's
+  ingress route does NOT match a bare token (it 404s before auth; only
+  `/<token>/` and `/<token>/<path>` match), so any full-page nav to Home 404'd.
+  Fixed with `trailingSlash: true` + `skipTrailingSlashRedirect: true` in
+  `next.config.ts` (root URLs now end in `/<token>/`, and the API — whose
+  fetches are built without trailing slashes — is served without a 308) and by
+  mapping the ingress-root `/` to `SENTINEL + "/"` in `proxy.js`. Verified
+  against a live standalone+proxy: root, `/pin/`, `/admin/employees/` and their
+  RSC payloads carry only slashed token URLs; `/api/health` GET and a
+  `/api/auth/pin-login` POST return normally with zero redirects.
+
+- **Native Home Assistant theming.** The whole app is now themed with Home
+  Assistant's own design tokens (colours lifted verbatim from
+  `home-assistant/frontend` — HA blue, card/background/text/divider colours,
+  12px card radius, the Roboto/Noto font stack), mapped onto the shadcn/ui
+  layer so every screen — kiosk, clock, my-hours, manager, admin, roster,
+  leave, settings — picks it up. Adds a **dark / light / system** toggle and an
+  **accent-colour picker** (the standard HA theme-picker palette), discoverable
+  on the Home launcher and in Admin → Settings → Appearance. Choices persist per
+  device (localStorage) and are applied before first paint (no theme flash);
+  first run follows the OS `prefers-color-scheme`. Default is dark + HA blue
+  (`#03a9f4`), matching the previous look. The fixed bottom nav is unchanged —
+  only restyled.
+- **Live demo on GitHub Pages** (https://jaketherabbit.github.io/ha-timeclock/).
+  A `NEXT_PUBLIC_DEMO=1` build swaps the API layer for an in-browser fixture
+  backend (seeded staff, several weeks of punches, breaks, corrections, leave,
+  rosters, pay periods, timesheets, audit rows). Clock in/out, breaks, edits,
+  approvals and roster changes mutate in-memory state so they visibly work
+  within a session; a **page reload reseeds** (it is a static site, so state is
+  not persisted). A "DEMO" banner marks it. The demo shim is client-only and
+  tree-shaken out of the production standalone build; the add-on build is
+  unchanged. Deployed by `.github/workflows/demo.yaml` (static export →
+  `actions/deploy-pages`).
+- **Profile pictures from Home Assistant.** Employee avatars are sourced from
+  HA `person` entities: the add-on reads person states via the Supervisor Core
+  proxy and matches person → employee by the person's `user_id` against the
+  employee's linked HA username (the same link SSO uses), falling back to a
+  display-name match. Pictures are proxied server-side through
+  `GET /api/avatars/:id` (the `SUPERVISOR_TOKEN` never reaches the browser) and
+  cached briefly. Avatars show on the kiosk staff grid, the manager live board,
+  the employees admin list, and the session header, with a coloured **initials
+  fallback** whenever a person has no picture (or outside HA). Requires that the
+  HA person has a picture configured and is linked to the employee's HA
+  username; unmatched staff simply show initials.
+- Tests: added avatar matching/fallback unit tests and a real-Postgres avatar
+  route integration suite (Supervisor mocked). i18n parity kept across all five
+  language packs (new Appearance strings translated).
+
 ## 0.5.1 — sidebar for all users + fix back-navigation 404s
 
 - `panel_admin: false`: the sidebar panel now shows for non-admin HA users

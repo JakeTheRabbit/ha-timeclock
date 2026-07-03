@@ -7,6 +7,31 @@ Full guides on GitHub:
 [Admin and Manager guide](https://github.com/JakeTheRabbit/ha-timeclock/blob/main/docs/admin-guide.md)
 and [Employee guide](https://github.com/JakeTheRabbit/ha-timeclock/blob/main/docs/employee-guide.md).
 
+## Appearance (theme)
+
+The app is themed to match the Home Assistant frontend, so it feels native in
+the sidebar. Set it in **Home** (launcher) or **Admin → Settings → Appearance**:
+
+- **Theme**: Dark, Light, or System (follows your device's `prefers-color-scheme`).
+- **Accent colour**: the standard Home Assistant theme-picker palette. Default
+  is HA blue (`#03a9f4`).
+
+Choices are saved **per device** in the browser (localStorage), so a shared
+kiosk and a personal phone can differ. First run defaults to dark + HA blue.
+
+## Profile pictures
+
+Employee avatars come from Home Assistant `person` entities. If a person in HA
+has a picture and is linked to the employee (by the employee's **HA username** —
+the same link used for SSO, matched against the person's user id or name), that
+picture shows on the kiosk staff grid, the manager live board, the employees
+admin list, and the top-bar session header. The picture is fetched by the add-on
+via the Supervisor proxy and served from `GET /api/avatars/:id`, so the
+Supervisor token never reaches the browser.
+
+No picture, or no match? The avatar falls back to the person's **initials** on a
+coloured circle. Nothing to configure for the fallback — it just works.
+
 ## Region and language
 
 Admin -> Settings -> Region and language. Pick a country to load defaults for
