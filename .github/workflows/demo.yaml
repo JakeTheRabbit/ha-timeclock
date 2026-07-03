@@ -1,0 +1,51 @@
+name: Demo (GitHub Pages)
+
+# Builds the static, client-only demo (NEXT_PUBLIC_DEMO=1 → in-browser fixture
+# backend, no Postgres) and publishes it to GitHub Pages at
+# https://jaketherabbit.github.io/ha-timeclock/. See timeclock/webapp/lib/demo.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow the deploy job to publish to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One live deploy at a time; don't cancel an in-flight run mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: timeclock/webapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      # Static export to timeclock/webapp/out (basePath /ha-timeclock).
+      - run: npm run build:demo
+      # Jekyll would otherwise ignore Next's _next/ directory.
+      - run: touch out/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: timeclock/webapp/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -3,6 +3,12 @@
 // the real per-session ingress prefix, so requests route back through HA.
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
+// Demo mode (GitHub Pages): a compile-time flag. When "1", requests are served
+// by an in-browser fixture backend instead of the network — see lib/demo. The
+// branch is dead-code-eliminated when the flag is unset, so the demo backend is
+// tree-shaken out of the production standalone build.
+const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -12,8 +18,16 @@ export class ApiError extends Error {
   }
 }
 
+async function doFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (DEMO) {
+    const { demoFetch } = await import("@/lib/demo/backend");
+    return demoFetch(url, init);
+  }
+  return fetch(url, init);
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await doFetch(`${BASE}/api${path}`, {
     credentials: "same-origin",
     headers: { "content-type": "application/json", ...init?.headers },
     ...init,
