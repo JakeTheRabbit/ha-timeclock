@@ -17,6 +17,7 @@ import { useLiveTimer } from "@/hooks/use-live-timer";
 import { useLocale } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
 import {
   Card,
   CardAction,
@@ -69,12 +70,15 @@ function LiveRow({ e }: { e: Board["clockedIn"][number] }) {
   const timer = useLiveTimer(e.clockIn);
   return (
     <div className="flex min-h-11 items-center gap-3">
-      <span
-        aria-hidden="true"
-        className={`size-2.5 shrink-0 rounded-full ${
-          e.onBreak ? "bg-amber-400" : "bg-emerald-400"
-        }`}
-      />
+      <div className="relative shrink-0">
+        <Avatar employeeId={e.employeeId} name={e.employeeName} size="sm" />
+        <span
+          aria-hidden="true"
+          className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card ${
+            e.onBreak ? "bg-amber-400" : "bg-emerald-400"
+          }`}
+        />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{e.employeeName}</div>
         <div className="text-xs text-muted-foreground">
