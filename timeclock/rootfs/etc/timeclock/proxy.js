@@ -91,10 +91,14 @@ const server = http.createServer((req, res) => {
     path = path.slice(ingressPath.length) || '/';
   }
   if (!path.startsWith('/')) path = '/' + path;
-  // The ingress iframe base ends in "/", but Next's basePath root is
-  // "/ha-ingress" (no trailing slash). Collapsing the root avoids Next's 308
-  // trailing-slash redirect (which would ping-pong through ingress forever).
-  const upstreamPath = path === '/' ? SENTINEL : SENTINEL + path;
+  // Next is built with trailingSlash + skipTrailingSlashRedirect, so its
+  // canonical root is "/ha-ingress/" (WITH slash). Mapping the iframe root "/"
+  // to SENTINEL + "/" makes the emitted Home/root URL rewrite to
+  // "…/hassio_ingress/<tok>/", which HA-core's ingress route matches. Mapping
+  // it to bare SENTINEL produced a bare-token URL that HA 404'd (the "back to
+  // Home 404" bug). skipTrailingSlashRedirect means neither form 308-redirects,
+  // so there is no ingress ping-pong either way.
+  const upstreamPath = path === '/' ? SENTINEL + '/' : SENTINEL + path;
 
   const headers = Object.assign({}, req.headers, { host: upstream.host });
   // Force identity encoding so we can string-rewrite bodies deterministically.
