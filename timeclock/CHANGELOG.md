@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.1 — paid/unpaid break choice + Jobs admin (feedback round 4, Ben)
+
+- **Break type is the employee's choice now.** The clock screen's single
+  "Start break" (which silently recorded every break as unpaid) is replaced by
+  two buttons: **Rest break (paid)** and **Meal break (unpaid)** — matching the
+  NZ break semantics the compliance engine already used. Until now the UI could
+  only record unpaid breaks, so every 2h+ shift was flagged
+  `missing_rest_break` on manager timesheets; paid rest breaks fix that (and
+  are not deducted from worked time).
+- **Admin → Jobs.** The jobs API existed since 0.1.0 but had no UI, so the
+  clock screen's switch-job menu (which only renders when jobs exist) was
+  unreachable. New Jobs page: add jobs (name + optional costing code), edit,
+  activate/deactivate. Once at least one job exists, employees get the job
+  picker on clock-in and the **switch job** menu while clocked in — switching
+  closes the current entry and opens a new one on the new job, both audited.
+- All new strings translated in the five language packs; new paid-break
+  integration test.
+
 ## 0.6.0 — native HA theming, live demo, HA profile pictures
 
 Three feature areas so the add-on looks and feels like part of Home Assistant,

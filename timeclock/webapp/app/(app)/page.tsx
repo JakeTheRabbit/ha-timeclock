@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Briefcase,
   CalendarDays,
   ChartColumn,
   IdCard,
@@ -131,6 +132,12 @@ export default function Home() {
                 icon={IdCard}
                 label={t("home.employees.label")}
                 description={t("home.employees.description")}
+              />
+              <Tile
+                href="/admin/jobs"
+                icon={Briefcase}
+                label={t("home.jobs.label")}
+                description={t("home.jobs.description")}
               />
               <Tile
                 href="/admin/settings"
