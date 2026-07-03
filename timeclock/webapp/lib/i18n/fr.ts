@@ -194,5 +194,13 @@ const fr: Partial<Record<keyof typeof import("./en").en, string>> = {
   "roster.cancelling": "Annulation…",
   "toast.shiftAdded": "Créneau ajouté.",
   "toast.shiftCancelled": "Créneau annulé.",
+
+  "theme.title": "Apparence",
+  "theme.description": "Aligné sur Home Assistant. Enregistré sur cet appareil.",
+  "theme.mode": "Thème",
+  "theme.mode.dark": "Sombre",
+  "theme.mode.light": "Clair",
+  "theme.mode.system": "Système",
+  "theme.accent": "Couleur d'accent",
 };
 export default fr;
