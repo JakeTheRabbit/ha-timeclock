@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
 import { useSession } from "@/hooks/use-session";
 import { apiPost } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
@@ -160,6 +161,7 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
           </h1>
           {employee && (
             <div className="flex shrink-0 items-center gap-2 pr-1">
+              <Avatar employeeId={employee.id} name={employee.displayName} size="sm" />
               <span className="max-w-28 truncate text-sm text-muted-foreground">
                 {employee.displayName}
               </span>

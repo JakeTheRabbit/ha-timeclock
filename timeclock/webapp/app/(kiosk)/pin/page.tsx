@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
@@ -155,8 +156,9 @@ export default function PinPage() {
                     key={e.id}
                     variant="secondary"
                     onClick={() => setSelected(e)}
-                    className="h-auto min-h-16 whitespace-normal rounded-xl px-4 py-4 text-lg font-medium"
+                    className="h-auto min-h-16 flex-col gap-2 whitespace-normal rounded-xl px-4 py-4 text-lg font-medium"
                   >
+                    <Avatar employeeId={e.id} name={e.displayName} size="md" />
                     {e.displayName}
                   </Button>
                 ) : (
@@ -166,6 +168,7 @@ export default function PinPage() {
                     title={t("pin.noPinSetTooltip")}
                     className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-card px-4 py-3 text-lg font-medium text-muted-foreground opacity-60"
                   >
+                    <Avatar employeeId={e.id} name={e.displayName} size="md" className="opacity-80" />
                     {e.displayName}
                     <Badge variant="outline" className="font-normal">
                       {t("pin.noPinSet")}
