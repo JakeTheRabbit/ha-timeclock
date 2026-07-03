@@ -206,5 +206,13 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "roster.cancelling": "Wird storniert…",
   "toast.shiftAdded": "Schicht hinzugefügt.",
   "toast.shiftCancelled": "Schicht storniert.",
+
+  "theme.title": "Darstellung",
+  "theme.description": "An Home Assistant angepasst. Auf diesem Gerät gespeichert.",
+  "theme.mode": "Design",
+  "theme.mode.dark": "Dunkel",
+  "theme.mode.light": "Hell",
+  "theme.mode.system": "System",
+  "theme.accent": "Akzentfarbe",
 };
 export default de;
