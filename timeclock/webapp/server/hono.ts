@@ -12,6 +12,7 @@ import { manager } from "./routes/manager";
 import { reports } from "./routes/reports";
 import { ext } from "./routes/ext";
 import { locale } from "./routes/locale";
+import { avatars } from "./routes/avatars";
 import { contextMiddleware, type AppEnv } from "./context";
 
 // Next STRIPS its basePath before the App Router hands the request to this
@@ -37,6 +38,7 @@ app.route("/leave", leave);
 app.route("/manager", manager);
 app.route("/reports", reports);
 app.route("/ext", ext);
+app.route("/avatars", avatars);
 
 // Fallback so unmatched API paths return JSON (not Next's HTML 404), which
 // makes client error handling uniform.

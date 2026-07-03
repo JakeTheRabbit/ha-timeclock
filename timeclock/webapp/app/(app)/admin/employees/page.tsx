@@ -10,6 +10,7 @@ import { useSession } from "@/hooks/use-session";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -262,6 +263,7 @@ export default function EmployeesAdminPage() {
           <CardContent className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
+                <Avatar employeeId={e.id} name={e.displayName} size="sm" />
                 <span className="truncate font-medium">{e.displayName}</span>
                 <Badge variant={e.hasPin ? "secondary" : "outline"}>
                   {e.hasPin ? "PIN set" : "No PIN"}
