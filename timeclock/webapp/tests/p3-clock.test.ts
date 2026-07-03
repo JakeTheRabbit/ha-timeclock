@@ -188,8 +188,8 @@ run("P3 clock flow (real Postgres)", () => {
     const actions = Object.fromEntries(audit.rows.map((r) => [r.action, r.n]));
     expect(actions.clock_in).toBeGreaterThanOrEqual(2);
     expect(actions.clock_out).toBeGreaterThanOrEqual(2);
-    expect(actions.break_start).toBe(1);
-    expect(actions.break_end).toBe(1);
+    expect(actions.break_start).toBe(2); // unpaid round-trip + paid rest break
+    expect(actions.break_end).toBe(2);
     expect(actions.auto_deduct).toBe(1);
     expect(actions.switch_job_open).toBe(1);
 
