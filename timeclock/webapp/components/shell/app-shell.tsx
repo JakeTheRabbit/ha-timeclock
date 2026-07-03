@@ -39,6 +39,7 @@ const ROUTE_TITLES: Record<string, MessageKey> = {
   "/manager/audit": "route.managerAudit",
   "/manager/pay-periods": "route.managerPayPeriods",
   "/admin/employees": "route.adminEmployees",
+  "/admin/jobs": "route.adminJobs",
   "/admin/settings": "route.adminSettings",
 };
 
