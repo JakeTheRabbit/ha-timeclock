@@ -31,6 +31,8 @@ import {
   COUNTRIES,
   type CountryCode,
 } from "@/server/domain/locale/countries";
+import { ThemeControls } from "@/components/theme/theme-controls";
+import { useT } from "@/lib/i18n";
 
 /**
  * Pragmatic v1 config surface: the validated settings document as editable
@@ -95,6 +97,8 @@ export default function SettingsPage() {
 
   return (
     <Container>
+      <ThemeSection />
+
       <LocaleSection />
 
       <IntegrationSection />
@@ -128,6 +132,25 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
     </Container>
+  );
+}
+
+/**
+ * Appearance: native-HA dark/light/system + accent picker. Per-device
+ * (localStorage), so it is not part of the server settings document.
+ */
+function ThemeSection() {
+  const t = useT();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("theme.title")}</CardTitle>
+        <CardDescription>{t("theme.description")}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ThemeControls />
+      </CardContent>
+    </Card>
   );
 }
 

@@ -15,13 +15,14 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/use-session";
 import { roleAtLeast } from "@/server/auth/rbac";
 import { useT } from "@/lib/i18n";
+import { ThemeControls } from "@/components/theme/theme-controls";
 
 interface Whoami {
   ha: { haUserId: string; displayName: string | null } | null;
@@ -140,7 +141,20 @@ export default function Home() {
             </>
           )}
         </nav>
-      ) : (
+      ) : null}
+
+      {session && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("theme.title")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ThemeControls />
+          </CardContent>
+        </Card>
+      )}
+
+      {!session && !isLoading ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
             <Timer className="size-10 text-primary" aria-hidden="true" />
@@ -164,7 +178,7 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
-      )}
+      ) : null}
     </div>
   );
 }

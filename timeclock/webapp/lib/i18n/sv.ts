@@ -201,6 +201,14 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
   "roster.cancelling": "Avbokar…",
   "toast.shiftAdded": "Pass tillagt.",
   "toast.shiftCancelled": "Pass avbokat.",
+
+  "theme.title": "Utseende",
+  "theme.description": "Matchar Home Assistant. Sparas på den här enheten.",
+  "theme.mode": "Tema",
+  "theme.mode.dark": "Mörkt",
+  "theme.mode.light": "Ljust",
+  "theme.mode.system": "System",
+  "theme.accent": "Accentfärg",
 };
 
 export default sv;

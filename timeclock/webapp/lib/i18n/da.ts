@@ -194,5 +194,13 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
   "roster.cancelling": "Aflyser…",
   "toast.shiftAdded": "Vagt tilføjet.",
   "toast.shiftCancelled": "Vagt aflyst.",
+
+  "theme.title": "Udseende",
+  "theme.description": "Matcher Home Assistant. Gemmes på denne enhed.",
+  "theme.mode": "Tema",
+  "theme.mode.dark": "Mørkt",
+  "theme.mode.light": "Lyst",
+  "theme.mode.system": "System",
+  "theme.accent": "Accentfarve",
 };
 export default da;

@@ -205,6 +205,15 @@ const en = {
   "roster.cancelling": "Cancelling…",
   "toast.shiftAdded": "Shift added.",
   "toast.shiftCancelled": "Shift cancelled.",
+
+  // ---- Appearance / theme (components/theme/theme-controls) -----------------
+  "theme.title": "Appearance",
+  "theme.description": "Match Home Assistant. Saved on this device.",
+  "theme.mode": "Theme",
+  "theme.mode.dark": "Dark",
+  "theme.mode.light": "Light",
+  "theme.mode.system": "System",
+  "theme.accent": "Accent color",
 } as const;
 
 export default en;

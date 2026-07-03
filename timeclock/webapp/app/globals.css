@@ -1,49 +1,119 @@
 @import "tailwindcss";
 
 /*
- * Permanently dark theme (kiosk + phones). shadcn/ui token set tuned to the
- * existing slate-950 aesthetic. There is intentionally no light mode.
+ * Native Home Assistant theming.
+ *
+ * The colours below are lifted verbatim from home-assistant/frontend
+ * (src/resources/theme/color/*) so the add-on looks like the HA frontend a user
+ * just came from. We expose HA's own variable names (--primary-color,
+ * --card-background-color, --primary-text-color, --divider-color, …) AND map the
+ * shadcn/ui token layer (--background, --card, --primary, …) onto them, so every
+ * existing screen picks the theme up with no per-page work.
+ *
+ * Theme selection: `data-theme="dark" | "light"` on <html> (set by
+ * lib/theme.ts before paint; falls back to prefers-color-scheme on first run).
+ * Accent: `--ha-accent` on <html> overrides the HA blue primary (accent picker,
+ * persisted per device in localStorage). Default: dark, HA blue #03a9f4.
  */
+
 :root {
-  --radius: 0.75rem;
+  /* HA card border-radius is 12px (--ha-border-radius-lg). */
+  --radius: 12px;
+  --ha-font-family:
+    Roboto, Noto, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Helvetica, Arial, sans-serif;
 
-  /* slate-950 */
-  --background: oklch(0.129 0.042 264.695);
-  /* slate-50 */
-  --foreground: oklch(0.984 0.003 247.858);
+  /* Accent (primary) — overridable by the picker. Default HA blue. */
+  --ha-accent: #03a9f4;
+  --ha-accent-contrast: #ffffff;
+}
 
-  /* slate-900 */
-  --card: oklch(0.208 0.042 265.755);
-  --card-foreground: oklch(0.984 0.003 247.858);
+/* ---------------------------------------------------------------------------
+ * DARK  (HA default). Values from darkColorStyles in color.globals.ts.
+ * ------------------------------------------------------------------------- */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
 
-  --popover: oklch(0.208 0.042 265.755);
-  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary-color: var(--ha-accent);
+  --accent-color: #ff9800;
 
-  /* sky-500 */
-  --primary: oklch(0.685 0.169 237.323);
-  /* slate-950 for contrast on the sky fill */
-  --primary-foreground: oklch(0.129 0.042 264.695);
+  --primary-background-color: #111111;
+  --card-background-color: #1c1c1c;
+  --secondary-background-color: #282828;
 
-  /* slate-800 */
-  --secondary: oklch(0.279 0.041 260.031);
-  --secondary-foreground: oklch(0.968 0.007 247.896);
+  --primary-text-color: #e1e1e1;
+  --secondary-text-color: #9b9b9b;
+  --disabled-text-color: #6f6f6f;
 
-  --muted: oklch(0.279 0.041 260.031);
-  /* slate-400 */
-  --muted-foreground: oklch(0.704 0.04 256.788);
+  --divider-color: rgba(225, 225, 225, 0.12);
+  --outline-color: rgba(225, 225, 225, 0.12);
 
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.968 0.007 247.896);
+  --error-color: #db4437;
+  --warning-color: #ffa600;
+  --success-color: #43a047;
+  --info-color: #039be5;
+}
 
-  /* rose-500 */
-  --destructive: oklch(0.645 0.246 16.439);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
+/* ---------------------------------------------------------------------------
+ * LIGHT. Values from colorStyles in color.globals.ts.
+ * ------------------------------------------------------------------------- */
+[data-theme="light"] {
+  color-scheme: light;
 
-  /* slate-800 */
-  --border: oklch(0.279 0.041 260.031);
-  --input: oklch(0.279 0.041 260.031);
-  /* sky-400 */
-  --ring: oklch(0.746 0.16 232.661);
+  --primary-color: var(--ha-accent);
+  --accent-color: #ff9800;
+
+  --primary-background-color: #fafafa;
+  --card-background-color: #ffffff;
+  --secondary-background-color: #e5e5e5;
+
+  --primary-text-color: #212121;
+  --secondary-text-color: #727272;
+  --disabled-text-color: #bdbdbd;
+
+  --divider-color: rgba(0, 0, 0, 0.12);
+  --outline-color: rgba(0, 0, 0, 0.12);
+
+  --error-color: #db4437;
+  --warning-color: #ffa600;
+  --success-color: #43a047;
+  --info-color: #039be5;
+}
+
+/* ---------------------------------------------------------------------------
+ * shadcn/ui token layer -> HA variables. Every UI component reads these, so
+ * mapping them once themes the whole app (kiosk, clock, my-hours, manager,
+ * admin, roster, leave, settings).
+ * ------------------------------------------------------------------------- */
+:root {
+  --background: var(--primary-background-color);
+  --foreground: var(--primary-text-color);
+
+  --card: var(--card-background-color);
+  --card-foreground: var(--primary-text-color);
+
+  --popover: var(--card-background-color);
+  --popover-foreground: var(--primary-text-color);
+
+  --primary: var(--primary-color);
+  --primary-foreground: var(--ha-accent-contrast);
+
+  --secondary: var(--secondary-background-color);
+  --secondary-foreground: var(--primary-text-color);
+
+  --muted: var(--secondary-background-color);
+  --muted-foreground: var(--secondary-text-color);
+
+  --accent: var(--secondary-background-color);
+  --accent-foreground: var(--primary-text-color);
+
+  --destructive: var(--error-color);
+  --destructive-foreground: #ffffff;
+
+  --border: var(--divider-color);
+  --input: var(--divider-color);
+  --ring: var(--primary-color);
 }
 
 @theme inline {
@@ -66,6 +136,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  --font-sans: var(--ha-font-family);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -90,10 +162,6 @@
     outline-color: color-mix(in oklab, var(--color-ring) 50%, transparent);
   }
 
-  html {
-    color-scheme: dark;
-  }
-
   html,
   body {
     height: 100%;
@@ -103,9 +171,8 @@
     margin: 0;
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family:
-      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-      Arial, sans-serif;
+    font-family: var(--ha-font-family);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
