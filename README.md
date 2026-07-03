@@ -9,6 +9,14 @@ Built for a working site, not a demo. It runs a real payroll pre-run against New
 Zealand rules, bundles its own PostgreSQL, and ships a dashboard card plus
 companion-app widgets so the whole thing lives inside Home Assistant.
 
+### ▶ [Try the live demo](https://jaketherabbit.github.io/ha-timeclock/)
+
+Explore the whole app in your browser — no install, no Home Assistant needed.
+It runs on in-browser sample data (fake staff, punches, breaks, corrections,
+leave, rosters), so you can clock in and out, approve requests, and browse every
+screen. Data resets on reload. Themed to look native in Home Assistant, with a
+dark/light toggle and accent picker.
+
 [![Add repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FJakeTheRabbit%2Fha-timeclock)
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -16,6 +24,7 @@ companion-app widgets so the whole thing lives inside Home Assistant.
 ![amd64](https://img.shields.io/badge/amd64-supported-brightgreen)
 ![aarch64](https://img.shields.io/badge/aarch64-supported-brightgreen)
 [![CI](https://github.com/JakeTheRabbit/ha-timeclock/actions/workflows/ci.yaml/badge.svg)](https://github.com/JakeTheRabbit/ha-timeclock/actions/workflows/ci.yaml)
+[![Demo](https://github.com/JakeTheRabbit/ha-timeclock/actions/workflows/demo.yaml/badge.svg)](https://github.com/JakeTheRabbit/ha-timeclock/actions/workflows/demo.yaml)
 
 ---
 
