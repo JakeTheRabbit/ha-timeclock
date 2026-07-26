@@ -9,7 +9,7 @@ import { initials } from "@/lib/avatar";
  */
 
 const people: PersonPicture[] = [
-  { path: "/local/demo.jpg", userId: "ha-user-demo", name: "Alex Rivera" },
+  { path: "/local/ben.jpg", userId: "ha-user-ben", name: "Ben Example" },
   { path: "/api/image/serve/abc/512x512", userId: "ha-user-stew", name: "stew" },
   { path: "/local/priya.png", userId: null, name: "Priya Nair" },
 ];
@@ -53,7 +53,7 @@ describe("matchPicture", () => {
   });
 
   it("returns null against an empty people list", () => {
-    expect(matchPicture({ haUsername: "ha-user-demo", displayName: "Alex Rivera" }, [])).toBeNull();
+    expect(matchPicture({ haUsername: "ha-user-ben", displayName: "Ben Example" }, [])).toBeNull();
   });
 
   it("user id takes precedence over a conflicting display-name match", () => {
