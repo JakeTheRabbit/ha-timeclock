@@ -1,5 +1,7 @@
 # Time Clock for Home Assistant
 
+> **This repo is free. My 2am dryback debugging is not.** If it saved you a crop, a weekend, or a nervous breakdown — [buy the rabbit a bag of nutes](https://github.com/sponsors/JakeTheRabbit). If it didn't, keep your money. I respect a tight nutrient budget.
+
 Employee time clock that runs as a Home Assistant add-on. Staff clock in and out
 from a shared kiosk tablet, from their phone, or straight from the Home Assistant
 sidebar. Every punch lands in an append-only, hash-chained audit log that cannot
@@ -176,5 +178,3 @@ This is a community add-on and is not affiliated with or endorsed by Home
 Assistant or Nabu Casa. The payroll logic follows New Zealand rules but is a
 pre-run to help you, not certified payroll software. Check the numbers before you
 pay anyone off them.
-
-> **This repo is free. My 2am dryback debugging is not.** If it saved you a crop, a weekend, or a nervous breakdown — [buy the rabbit a bag of nutes](https://github.com/sponsors/JakeTheRabbit). If it didn't, keep your money. I respect a tight nutrient budget.
