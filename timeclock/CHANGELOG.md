@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.2 — optional direct LAN port
+
+- **Staff phones can clock in over site WiFi without an HA account.** The
+  add-on now declares `8099/tcp` as an optional host port (disabled by
+  default). Map it under the add-on's Network section and staff open
+  `http://<ha-ip>:<port>/` — the proxy already served the app at the root when
+  no ingress header is present. Identity headers are still stripped from
+  non-Supervisor sources, so direct visitors get the PIN kiosk, not HA SSO.
+
 ## 0.6.1 — paid/unpaid break choice + Jobs admin (feedback round 4, Ben)
 
 - **Break type is the employee's choice now.** The clock screen's single

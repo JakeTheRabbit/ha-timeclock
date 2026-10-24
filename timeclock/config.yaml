@@ -1,5 +1,5 @@
 name: Time Clock
-version: "0.6.1"
+version: "0.6.2"
 slug: timeclock
 description: >-
   Employee time-clock system (kiosk-first) with an immutable, hash-chained audit
@@ -18,6 +18,12 @@ panel_title: Time Clock
 # Staff (non-admin HA users) must see the kiosk panel — HA's default (true)
 # hides ingress panels from everyone outside the admin group.
 panel_admin: false
+# Optional direct LAN access (phones on site WiFi without an HA login).
+# Disabled by default; set a host port under the add-on's Network section.
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Direct LAN access (no HA login; PIN still required to punch)
 # --- APIs the add-on may call (used from P2 auth / P10 notify onward). ---
 hassio_api: true
 homeassistant_api: true
