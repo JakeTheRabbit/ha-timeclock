@@ -1,11 +1,11 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { and, eq, gte, lt, desc, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { timeEntries, breaks, jobs } from "@/db/schema";
+import { timeEntries, breaks, jobs, type Employee, type TimeEntry } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
-import { requireRole } from "@/server/auth/rbac";
-import { applyEntryEdit, EditError } from "@/server/domain/time/edit";
+import { requireRole, roleAtLeast } from "@/server/auth/rbac";
+import { applyBreakEdit, applyEntryEdit, EditError, type EditSource } from "@/server/domain/time/edit";
 import { EditGuardError } from "@/server/domain/payperiod/errors";
 import { workedMinutes } from "@/server/domain/time/breaks";
 import { isSelfEditable } from "@/server/domain/time/edit-window";
@@ -58,6 +58,7 @@ export async function hydrateEntries(entryRows: (typeof timeEntries.$inferSelect
       })),
       workedMinutes: e.clockOut ? workedMinutes(e.clockIn, e.clockOut, bs) : null,
       selfEditable: isSelfEditable(e.clockIn),
+      fraudFlags: e.fraudFlags,
     };
   });
 }
@@ -89,8 +90,9 @@ export const entries = new Hono<AppEnv>()
     return c.json({ entries: await hydrateEntries(rows) });
   })
 
-  // Self-edit my own entry. Every change requires a reason and writes an audit
-  // row; the entry is flagged `edited` forever. Locked pay periods reject.
+  // Edit an entry (open or closed). Every change requires a reason and writes
+  // an audit row; the entry is flagged `edited` forever. Locked pay periods
+  // reject. Owners edit within the day-after window; leads+ edit anyone's.
   .patch("/:id", async (c) => {
     const body = editSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "bad_request", detail: body.error.flatten() }, 400);
@@ -100,20 +102,89 @@ export const entries = new Hono<AppEnv>()
       where: (t, { eq: eq_ }) => eq_(t.id, c.req.param("id")),
     });
     if (!entry) return c.json({ error: "not_found" }, 404);
-    if (entry.employeeId !== me.id) return c.json({ error: "not_your_entry" }, 403);
-
-    // Self-edits close at the end of the day after the shift; the new clock-in
-    // must stay inside that window too (no moving a shift into a locked day).
-    if (!isSelfEditable(entry.clockIn) || (body.data.clockIn && !isSelfEditable(body.data.clockIn)))
-      return c.json({ error: "edit_window_closed" }, 423);
+    const access = editAccess(me, entry, body.data.clockIn);
+    if ("error" in access) return c.json({ error: access.error }, access.status);
 
     const { reason, ...edit } = body.data;
-    try {
-      const after = await applyEntryEdit({ entry, edit, actorId: me.id, reason, source: "self_edit" });
+    return guarded(c, async () => {
+      const after = await applyEntryEdit({ entry, edit, actorId: me.id, reason, source: access.source });
       return c.json({ ok: true, entry: { id: after.id, edited: after.edited } });
-    } catch (e) {
-      if (e instanceof EditGuardError) return c.json({ error: e.code }, 423);
-      if (e instanceof EditError) return c.json({ error: e.code }, 400);
-      throw e;
-    }
+    });
+  })
+
+  // Add a missed break to an entry.
+  .post("/:id/breaks", async (c) => {
+    const body = breakSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "bad_request", detail: body.error.flatten() }, 400);
+    const me = c.get("auth")!.employee;
+    const entry = await getDb().query.timeEntries.findFirst({
+      where: (t, { eq: eq_ }) => eq_(t.id, c.req.param("id")),
+    });
+    if (!entry) return c.json({ error: "not_found" }, 404);
+    const access = editAccess(me, entry);
+    if ("error" in access) return c.json({ error: access.error }, access.status);
+
+    const { reason, ...edit } = body.data;
+    return guarded(c, async () => {
+      const b = await applyBreakEdit({ entry, brk: null, edit, actorId: me.id, reason, source: access.source });
+      return c.json({ ok: true, breakId: b.id }, 201);
+    });
+  })
+
+  // Fix a break's start/end/paid.
+  .patch("/:id/breaks/:breakId", async (c) => {
+    const body = breakSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "bad_request", detail: body.error.flatten() }, 400);
+    const me = c.get("auth")!.employee;
+    const db = getDb();
+    const entry = await db.query.timeEntries.findFirst({
+      where: (t, { eq: eq_ }) => eq_(t.id, c.req.param("id")),
+    });
+    const brk = await db.query.breaks.findFirst({
+      where: (b, { eq: eq_ }) => eq_(b.id, c.req.param("breakId")),
+    });
+    if (!entry || !brk || brk.timeEntryId !== entry.id) return c.json({ error: "not_found" }, 404);
+    const access = editAccess(me, entry);
+    if ("error" in access) return c.json({ error: access.error }, access.status);
+
+    const { reason, ...edit } = body.data;
+    return guarded(c, async () => {
+      await applyBreakEdit({ entry, brk, edit, actorId: me.id, reason, source: access.source });
+      return c.json({ ok: true });
+    });
   });
+
+const breakSchema = z.object({
+  startAt: z.coerce.date().optional(),
+  endAt: z.coerce.date().nullable().optional(),
+  paid: z.boolean().optional(),
+  reason: z.string().min(3).max(500), // MANDATORY
+});
+
+/**
+ * Who may edit this entry, and how it is audited: leads+ edit anyone's at any
+ * time (manager_edit); owners only while the shift's day-after window is open,
+ * and a moved start time must stay inside it (no shifting into a locked day).
+ */
+function editAccess(
+  me: Employee,
+  entry: TimeEntry,
+  newClockIn?: Date,
+): { source: EditSource } | { error: string; status: 403 | 423 } {
+  if (roleAtLeast(me.role, "lead")) return { source: "manager_edit" };
+  if (entry.employeeId !== me.id) return { error: "not_your_entry", status: 403 };
+  if (!isSelfEditable(entry.clockIn) || (newClockIn && !isSelfEditable(newClockIn)))
+    return { error: "edit_window_closed", status: 423 };
+  return { source: "self_edit" };
+}
+
+/** Map domain edit errors to HTTP: locked period 423, bad times 400. */
+async function guarded(c: Context<AppEnv>, fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof EditGuardError) return c.json({ error: e.code }, 423);
+    if (e instanceof EditError) return c.json({ error: e.code }, 400);
+    throw e;
+  }
+}

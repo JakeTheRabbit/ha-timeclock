@@ -71,13 +71,16 @@ run("P4 edits + corrections (real Postgres)", () => {
     expect(audit.rows[0].new_value).toContain(newOut.slice(0, 16));
   });
 
-  it("cannot edit someone else's entry", async () => {
+  it("a manager edits someone else's entry directly, audited as manager_edit", async () => {
     const res = await app.request(`/api/entries/${entryId}`, {
       method: "PATCH",
-      headers: jsonHeaders(w.adminCookie), // admin edits via manager tools, not this route
-      body: JSON.stringify({ note: "hi", reason: "test" }),
+      headers: jsonHeaders(w.adminCookie),
+      body: JSON.stringify({ note: "hi", reason: "manager fix" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    const audit = await admin.query("SELECT actor_id FROM audit_log WHERE action='manager_edit'");
+    expect(audit.rowCount).toBe(1);
+    expect(audit.rows[0].actor_id).toBe(w.adminId);
   });
 
   it("self-edit locks after the day-after window (423), can't move a shift into it either", async () => {

@@ -65,6 +65,15 @@ export const settingsSchema = z.object({
       maxShiftHours: z.number().min(1).max(24).default(14),
     })
     .default({}),
+  // Flag clock-ins with no card swipe on the employee's door readers within
+  // lookbackMin before (or graceAfterMin after) the clock-in.
+  doorAccess: z
+    .object({
+      enabled: z.boolean().default(true),
+      lookbackMin: z.number().int().min(5).max(720).default(180),
+      graceAfterMin: z.number().int().min(0).max(120).default(15),
+    })
+    .default({}),
   notifications: z
     .object({
       haNotifyEnabled: z.boolean().default(true),

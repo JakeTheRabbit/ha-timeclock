@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { getPool } from "@/db/client";
-import { resetDb, bootstrapWorld, jsonHeaders, type AuthedWorld } from "./helpers";
+import { resetDb, bootstrapWorld, jsonHeaders, type AuthedWorld, pastRepunchCooldown } from "./helpers";
 
 // P13: HA integration — external clock API (widgets/card), sensor push,
 // generated package YAML. Real Postgres, real Hono app.
@@ -91,6 +91,7 @@ run("P13 HA integration (real Postgres)", () => {
   });
 
   it("double clock-in via ext is rejected cleanly", async () => {
+    await pastRepunchCooldown(admin);
     const a = await app.request("/api/ext/punch", {
       method: "POST",
       headers: { "x-timeclock-key": apiKey, "content-type": "application/json" },

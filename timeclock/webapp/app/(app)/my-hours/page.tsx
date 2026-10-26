@@ -3,28 +3,16 @@
 import Link from "next/link";
 import * as React from "react";
 import { useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api-client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api-client";
+import { EditEntryDialog, type EntryRow } from "@/components/entries/edit-entry-dialog";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -35,18 +23,6 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Pencil } from "lucide-react";
-
-interface EntryRow {
-  id: string;
-  clockIn: string;
-  clockOut: string | null;
-  edited: boolean;
-  note: string | null;
-  job: { id: string; name: string } | null;
-  workedMinutes: number | null;
-  selfEditable: boolean;
-  breaks: { id: string; startAt: string; endAt: string | null; paid: boolean; autoDeducted: boolean }[];
-}
 
 type Range = "today" | "week" | "fortnight";
 
@@ -82,11 +58,6 @@ const breaksLabel = (e: EntryRow, t: TFn) =>
             }`,
         )
         .join(", ");
-
-const errMsg = (e: unknown, t: TFn) =>
-  e instanceof ApiError
-    ? ((e.body as { error?: string })?.error ?? t("toast.errorStatus", { status: e.status }))
-    : t("toast.requestFailed");
 
 function Container({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
@@ -199,16 +170,14 @@ export default function MyHoursPage() {
                   {t("myHours.breaks", { value: breaksLabel(e, t) })}
                   {e.job && <> · {e.job.name}</>}
                 </div>
-                {e.clockOut && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="mt-1 min-h-11 self-start"
-                    onClick={() => setEditing(e)}
-                  >
-                    <Pencil /> {t("myHours.fixTimes")}
-                  </Button>
-                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-1 min-h-11 self-start"
+                  onClick={() => setEditing(e)}
+                >
+                  <Pencil /> {t("myHours.fixTimes")}
+                </Button>
               </CardContent>
             </Card>
           ))}
@@ -247,11 +216,9 @@ export default function MyHoursPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {e.clockOut && (
-                      <Button variant="secondary" size="sm" onClick={() => setEditing(e)}>
-                        <Pencil /> {t("myHours.fixTimes")}
-                      </Button>
-                    )}
+                    <Button variant="secondary" size="sm" onClick={() => setEditing(e)}>
+                      <Pencil /> {t("myHours.fixTimes")}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -263,6 +230,7 @@ export default function MyHoursPage() {
       {editing && (
         <EditEntryDialog
           entry={editing}
+          mode="self"
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
@@ -271,134 +239,5 @@ export default function MyHoursPage() {
         />
       )}
     </Container>
-  );
-}
-
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={cn(
-        "flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function EditEntryDialog({
-  entry,
-  onClose,
-  onDone,
-}: {
-  entry: EntryRow;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const t = useT();
-  const loc = useLocale();
-  const toLocal = (iso: string | null) =>
-    iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
-  const [cin, setCin] = useState(toLocal(entry.clockIn));
-  const [cout, setCout] = useState(toLocal(entry.clockOut));
-  const [reason, setReason] = useState("");
-  // Past the day-after window a direct edit is refused (423) — only a
-  // manager-approved correction can change a locked entry.
-  const locked = !entry.selfEditable;
-  const [asCorrection, setAsCorrection] = useState(locked);
-
-  const submit = useMutation({
-    mutationFn: async () => {
-      const clockIn = cin ? new Date(cin).toISOString() : undefined;
-      const clockOut = cout ? new Date(cout).toISOString() : undefined;
-      if (asCorrection) {
-        await apiPost("/corrections", {
-          timeEntryId: entry.id,
-          requested: { clockIn, clockOut },
-          reason,
-        });
-        return t("toast.correctionRequested");
-      }
-      await apiPatch(`/entries/${entry.id}`, { clockIn, clockOut, reason });
-      return t("toast.timesUpdated");
-    },
-    onSuccess: (m) => {
-      toast.success(m);
-      onDone();
-    },
-    onError: (e) => toast.error(errMsg(e, t)),
-  });
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("myHours.dialogTitle")}</DialogTitle>
-          <DialogDescription>{loc.date(entry.clockIn)}</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-clock-in">{t("myHours.clockIn")}</Label>
-              <Input
-                id="edit-clock-in"
-                type="datetime-local"
-                value={cin}
-                onChange={(e) => setCin(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-clock-out">{t("myHours.clockOut")}</Label>
-              <Input
-                id="edit-clock-out"
-                type="datetime-local"
-                value={cout}
-                onChange={(e) => setCout(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-reason">{t("myHours.reasonLabel")}</Label>
-            <Textarea
-              id="edit-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder={t("myHours.reasonPlaceholder")}
-            />
-          </div>
-          {locked ? (
-            <p className="rounded-lg border border-border p-3 text-sm text-muted-foreground">
-              {t("myHours.locked")}
-            </p>
-          ) : (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
-              <Label htmlFor="edit-as-correction" className="flex flex-col items-start gap-1">
-                {t("myHours.asCorrection")}
-                <span className="text-xs font-normal text-muted-foreground">
-                  {t("myHours.asCorrectionHint")}
-                </span>
-              </Label>
-              <Switch
-                id="edit-as-correction"
-                checked={asCorrection}
-                onCheckedChange={setAsCorrection}
-              />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="secondary" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            onClick={() => submit.mutate()}
-            disabled={reason.trim().length < 3 || submit.isPending}
-          >
-            {submit.isPending ? t("common.saving") : t("common.save")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

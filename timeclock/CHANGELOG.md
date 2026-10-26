@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.0 — shift accuracy, manager edits, door-access flag, email
+
+- **Double-tap guard.** A clock-in within 60 s of a clock-out is refused
+  (`409 just_clocked_out`, friendly kiosk message). The clock-out button turns
+  into clock-in in the same spot, so a second tap used to open a phantom shift
+  that ran until the 14 h auto clock-out. Offline-queued replays are exempt.
+- **Fix a shift you're still clocked into.** *Fix times* now shows on open
+  shifts: staff can correct their start time while clocked in.
+- **Edit breaks.** The edit dialog lists the shift's breaks — change start,
+  end and paid/unpaid, or add a missed break (`POST /entries/:id/breaks`,
+  `PATCH /entries/:id/breaks/:breakId`). Breaks must sit inside the shift.
+  Same day-after window, reason and audit rules as time edits.
+- **Managers edit directly.** Leads and above can edit anyone's entry and
+  breaks at any time (pay-period locks still apply), audited as
+  `manager_edit`. New *Manager → Edit entries* screen: pick a person, see the
+  last 14 days with flags, edit.
+- **No-door-access flag.** Map each employee's HA card-reader entities
+  (*Admin → Employees*). A clock-in — or an edited start time — with no swipe
+  in the 3 h before (15 min grace after) is flagged `no_door_access` and
+  triggers an alert. Tunable under settings `doorAccess`. HA unreachable =
+  no flag (logged), never a blocked punch.
+- **Email alerts via Microsoft Graph.** New optional add-on options
+  `email_tenant_id`, `email_client_id`, `email_client_secret`, `email_from`,
+  `email_to` (app registration with `Mail.Send`). Alerts (auto clock-out,
+  no-door-access) go to every enabled channel; `POST /api/admin/notify/test`
+  sends a test.
+- Times can't be edited into the future. Migration `0011` adds
+  `employees.access_entities`.
+
 ## 0.6.3 — self-edits lock after the day after
 
 - **Staff can fix their own times on the shift's day and the day after**

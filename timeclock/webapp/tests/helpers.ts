@@ -69,3 +69,13 @@ export const jsonHeaders = (cookie: string) => ({
   cookie: `tc_session=${cookie}`,
   "content-type": "application/json",
 });
+
+/**
+ * Back-date a just-made clock-out past the 60s double-tap guard, so a suite
+ * can clock the same person back in (real staff are never this quick).
+ */
+export async function pastRepunchCooldown(admin: Pool) {
+  await admin.query(
+    "UPDATE time_entries SET clock_out = clock_out - interval '2 minutes' WHERE clock_out > now() - interval '2 minutes'",
+  );
+}

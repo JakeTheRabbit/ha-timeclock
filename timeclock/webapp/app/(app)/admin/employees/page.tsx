@@ -41,6 +41,7 @@ interface Emp {
   hasPin: boolean;
   notifyService: string | null;
   presenceEntity: string | null;
+  accessEntities: string[];
 }
 
 interface HaEntities {
@@ -452,6 +453,23 @@ export default function EmployeesAdminPage() {
                         </SelectContent>
                       </Select>
                     )}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <Label htmlFor={`access-${e.id}`} className="text-xs text-muted-foreground">
+                      Door card readers (clock-ins with no swipe get flagged)
+                    </Label>
+                    <FreeTextField
+                      id={`access-${e.id}`}
+                      value={e.accessEntities.join(", ")}
+                      placeholder="binary_sensor.front_door_rfid_name, …"
+                      onSave={(v) =>
+                        patch.mutate({
+                          id: e.id,
+                          data: { accessEntities: v.split(",").map((s) => s.trim()).filter(Boolean) },
+                        })
+                      }
+                    />
                   </div>
                 </div>
                 {haEntities.data && !haEntities.data.available && (

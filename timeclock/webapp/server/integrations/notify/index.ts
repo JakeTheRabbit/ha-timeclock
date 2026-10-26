@@ -1,5 +1,6 @@
 import { haNotifier } from "./ha-notify";
 import { smtpNotifier } from "./smtp";
+import { emailConfigured, emailNotifier } from "./email";
 import { getSettings } from "@/server/domain/settings";
 
 export interface NotifyMessage {
@@ -22,6 +23,7 @@ export async function notify(msg: NotifyMessage): Promise<{ sent: string[]; fail
   const targets: Notifier[] = [];
   if (settings.notifications.haNotifyEnabled) targets.push(haNotifier);
   if (settings.notifications.smtp.enabled) targets.push(smtpNotifier);
+  if (emailConfigured()) targets.push(emailNotifier);
 
   const sent: string[] = [];
   const failed: string[] = [];

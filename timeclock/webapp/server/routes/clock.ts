@@ -12,6 +12,11 @@ import { geofenceFlag } from "@/server/domain/antifraud/geofence";
 import { ipFlag } from "@/server/domain/antifraud/ip-lock";
 import { savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
 import { schedulePush } from "@/server/integrations/ha/state-push";
+import { doorAccessFlag } from "@/server/domain/antifraud/door-access";
+import { notify } from "@/server/integrations/notify";
+import { APP_TZ } from "@/lib/tz";
+
+const REPUNCH_COOLDOWN_MS = 60_000;
 
 const clockInSchema = z.object({
   jobId: z.string().uuid().nullish(),
@@ -85,6 +90,20 @@ export const clock = new Hono<AppEnv>()
 
     if (await openEntryFor(me.id)) return c.json({ error: "already_clocked_in" }, 409);
 
+    // Double-tap guard: the clock-out button becomes clock-in in the same
+    // spot, so a second tap used to open a phantom shift. Offline-queued
+    // replays are exempt (they arrive back-to-back legitimately).
+    const queued = queuedInstant(body.data.clientQueuedAt);
+    if (!queued) {
+      const last = await getDb().query.timeEntries.findFirst({
+        where: (t, { eq: eq_, and: and_, isNotNull: isNotNull_ }) =>
+          and_(eq_(t.employeeId, me.id), isNotNull_(t.clockOut)),
+        orderBy: (t, { desc: desc_ }) => desc_(t.clockOut),
+      });
+      if (last?.clockOut && Date.now() - last.clockOut.getTime() < REPUNCH_COOLDOWN_MS)
+        return c.json({ error: "just_clocked_out" }, 409);
+    }
+
     // ---- Anti-fraud checks (P11): flag always; block only when enforced. ----
     const { antifraud } = await getSettings();
     const flags: string[] = [];
@@ -109,14 +128,23 @@ export const clock = new Hono<AppEnv>()
       return c.json({ error: "photo_required" }, 400);
     }
 
-    const queued = queuedInstant(body.data.clientQueuedAt);
     if (queued) flags.push("offline_queued");
+
+    const clockIn = queued ?? new Date();
+    const door = await doorAccessFlag(me.accessEntities, clockIn);
+    if (door) {
+      flags.push(door);
+      void notify({
+        title: "Clock-in with no door swipe",
+        message: `${me.displayName} clocked in at ${clockIn.toLocaleTimeString("en-NZ", { timeZone: APP_TZ, hour: "2-digit", minute: "2-digit" })} with no card swipe on their door reader beforehand.`,
+      });
+    }
 
     const [entry] = await getDb()
       .insert(timeEntries)
       .values({
         employeeId: me.id,
-        clockIn: queued ?? new Date(),
+        clockIn,
         jobId: body.data.jobId ?? null,
         geoLat: body.data.geo?.lat ?? null,
         geoLng: body.data.geo?.lng ?? null,

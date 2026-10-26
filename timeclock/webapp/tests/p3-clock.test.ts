@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { getPool } from "@/db/client";
-import { resetDb, bootstrapWorld, jsonHeaders, type AuthedWorld } from "./helpers";
+import { resetDb, bootstrapWorld, jsonHeaders, type AuthedWorld, pastRepunchCooldown } from "./helpers";
 import {
   autoDeductMinutes,
   unpaidBreakMinutes,
@@ -156,6 +156,7 @@ run("P3 clock flow (real Postgres)", () => {
   });
 
   it("job switch closes + reopens entries under the new job", async () => {
+    await pastRepunchCooldown(admin);
     const mk = await app.request("/api/admin/jobs", {
       method: "POST",
       headers: jsonHeaders(w.adminCookie),

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { getPool } from "@/db/client";
-import { resetDb, bootstrapWorld, jsonHeaders } from "./helpers";
+import { resetDb, bootstrapWorld, jsonHeaders, pastRepunchCooldown } from "./helpers";
 import { distanceMetres, geofenceFlag } from "@/server/domain/antifraud/geofence";
 import { ipInCidr, ipFlag } from "@/server/domain/antifraud/ip-lock";
 
@@ -89,6 +89,7 @@ run("P11 anti-fraud punch flow (real Postgres)", () => {
   });
 
   it("enforce mode: off-site punch rejected 403; on-site accepted clean", async () => {
+    await pastRepunchCooldown(admin);
     await app.request("/api/admin/settings", {
       method: "PATCH",
       headers: jsonHeaders(w.adminCookie),
@@ -114,6 +115,7 @@ run("P11 anti-fraud punch flow (real Postgres)", () => {
   });
 
   it("photo-on-punch: required when enabled; stored and referenced", async () => {
+    await pastRepunchCooldown(admin);
     await app.request("/api/admin/settings", {
       method: "PATCH",
       headers: jsonHeaders(w.adminCookie),

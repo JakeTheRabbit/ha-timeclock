@@ -99,10 +99,13 @@ export default function ClockPage() {
           toast.info(t("clock.offlineQueued"));
           return { queued: true };
         }
+        const code = e instanceof ApiError ? (e.body as { error?: string })?.error : undefined;
         toast.error(
-          e instanceof ApiError
-            ? `${(e.body as { error?: string })?.error ?? e.status}`
-            : t("toast.requestFailed"),
+          code === "just_clocked_out"
+            ? t("clock.justClockedOut")
+            : e instanceof ApiError
+              ? `${code ?? e.status}`
+              : t("toast.requestFailed"),
         );
         throw e;
       });

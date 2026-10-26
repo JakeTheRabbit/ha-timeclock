@@ -18,12 +18,16 @@ import {
   refreshIntegrationIfInstalled,
 } from "@/server/integrations/ha/install";
 import { schedulePush } from "@/server/integrations/ha/state-push";
+import { notify } from "@/server/integrations/notify";
 
 // Optional string that clears to NULL when blank (unset a mapping from the UI).
 const optClearable = z
   .union([z.string().max(200), z.null()])
   .optional()
   .transform((v) => (v === "" || v === undefined ? undefined : v));
+
+// HA card-reader entities for the door-access cross-check.
+const accessEntitiesSchema = z.array(z.string().regex(/^[a-z_]+\.[a-z0-9_]+$/)).max(10);
 
 const createEmployeeSchema = z.object({
   displayName: z.string().min(1).max(100),
@@ -32,6 +36,7 @@ const createEmployeeSchema = z.object({
   pin: z.string().min(4).max(12).optional(),
   notifyService: optClearable,
   presenceEntity: optClearable,
+  accessEntities: accessEntitiesSchema.optional(),
 });
 
 const updateEmployeeSchema = z.object({
@@ -42,6 +47,7 @@ const updateEmployeeSchema = z.object({
   // "" clears the mapping -> stored as NULL.
   notifyService: z.union([z.string().max(200), z.null()]).optional().transform((v) => (v === "" ? null : v)),
   presenceEntity: z.union([z.string().max(200), z.null()]).optional().transform((v) => (v === "" ? null : v)),
+  accessEntities: accessEntitiesSchema.optional(),
 });
 
 const setPinSchema = z.object({ pin: z.string().min(4).max(12) });
@@ -61,6 +67,7 @@ export const admin = new Hono<AppEnv>()
         hasPin: employees.pinHash,
         notifyService: employees.notifyService,
         presenceEntity: employees.presenceEntity,
+        accessEntities: employees.accessEntities,
         createdAt: employees.createdAt,
       })
       .from(employees)
@@ -85,6 +92,7 @@ export const admin = new Hono<AppEnv>()
         pinHash: pin ? hashPin(pin) : null,
         notifyService: fields.notifyService ?? null,
         presenceEntity: fields.presenceEntity ?? null,
+        accessEntities: fields.accessEntities ?? [],
       })
       .returning();
 
@@ -124,12 +132,14 @@ export const admin = new Hono<AppEnv>()
         role: before.role,
         active: before.active,
         haUsername: before.haUsername,
+        accessEntities: before.accessEntities,
       },
       newValue: {
         displayName: after.displayName,
         role: after.role,
         active: after.active,
         haUsername: after.haUsername,
+        accessEntities: after.accessEntities,
       },
     });
     void refreshIntegrationIfInstalled();
@@ -243,6 +253,17 @@ export const admin = new Hono<AppEnv>()
   })
 
   // Bind THIS browser/tablet as a kiosk device (admin walks to the kiosk).
+  // Fire a test message through every enabled channel (HA notify, email).
+  .post("/notify/test", async (c) => {
+    const me = c.get("auth")!.employee;
+    return c.json(
+      await notify({
+        title: "Test notification",
+        message: `Sent by ${me.displayName} from Time Clock settings. If you can read this, alerts are working.`,
+      }),
+    );
+  })
+
   .post("/devices/bind", async (c) => {
     const body = bindDeviceSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "bad_request" }, 400);

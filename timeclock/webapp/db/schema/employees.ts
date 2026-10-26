@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, uuid, text, boolean, timestamp } from "drizzle-orm/pg-core";
 
 export const employees = pgTable("employees", {
@@ -11,6 +12,8 @@ export const employees = pgTable("employees", {
   // the presence entity that says whether they're at work.
   notifyService: text("notify_service"),
   presenceEntity: text("presence_entity"),
+  // Door-access cross-check: this person's HA card-reader entities.
+  accessEntities: text("access_entities").array().notNull().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -34,6 +34,7 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "route.leave": "Abwesenheit",
   "route.manager": "Leitung",
   "route.managerAudit": "Protokoll",
+  "route.managerEntries": "Einträge bearbeiten",
   "route.managerPayPeriods": "Abrechnungszeiträume",
   "route.adminEmployees": "Mitarbeitende",
   "route.adminJobs": "Jobs",
@@ -116,6 +117,7 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "clock.offlinePending": "{n} Offline-Stempelung(en) warten auf Sync",
   "clock.offlineQueued":
     "Offline — Stempelung gespeichert, Sync sobald wieder online",
+  "clock.justClockedOut": "Du hast dich gerade ausgestempelt — warte eine Minute, bevor du wieder einstempelst.",
   "clock.syncedPunches": "{n} Offline-Stempelung(en) synchronisiert",
   "toast.clockedIn": "Eingestempelt",
   "toast.worked": "{hours} Std. gearbeitet",
@@ -167,6 +169,12 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "myHours.reasonLabel": "Grund (erforderlich)",
   "myHours.reasonPlaceholder": "z. B. Ausstempeln vergessen",
   "myHours.asCorrection": "Als Korrekturantrag senden",
+  "myHours.stillClockedIn": "Noch eingestempelt",
+  "myHours.breaksTitle": "Pausen",
+  "myHours.addBreak": "Pause hinzufügen",
+  "myHours.breakStartLabel": "Pausenbeginn",
+  "myHours.breakEndLabel": "Pausenende",
+  "myHours.breakPaidToggle": "Bezahlt",
   "myHours.locked": "Gesperrt — Zeiten können nur am selben und am folgenden Tag korrigiert werden. Sende eine Korrektur zur Freigabe an eine Führungskraft.",
   "myHours.asCorrectionHint":
     "Eine Führungskraft genehmigt, bevor Zeiten geändert werden",

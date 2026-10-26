@@ -20,5 +20,12 @@ if [ ! -s /data/session_secret ]; then
 fi
 export SESSION_SECRET="$(cat /data/session_secret)"
 
+# Optional email (Microsoft Graph Mail.Send). Unset options -> email off.
+export EMAIL_TENANT_ID="$(bashio::config 'email_tenant_id' '')"
+export EMAIL_CLIENT_ID="$(bashio::config 'email_client_id' '')"
+export EMAIL_CLIENT_SECRET="$(bashio::config 'email_client_secret' '')"
+export EMAIL_FROM="$(bashio::config 'email_from' '')"
+export EMAIL_TO="$(bashio::config 'email_to' '')"
+
 bashio::log.info "Starting Time Clock app on 127.0.0.1:${PORT} (TZ=${TZ})"
 exec node server.js

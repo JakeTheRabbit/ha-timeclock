@@ -9,6 +9,7 @@ import { appendAudit } from "@/server/domain/audit/writer";
 import { ensurePeriodContaining } from "@/server/domain/payperiod/periods";
 import { buildTimesheet } from "@/server/domain/payperiod/timesheet";
 import { nzDateOf } from "@/server/domain/holidays/stat-pay";
+import { hydrateEntries } from "@/server/routes/entries";
 
 export const manager = new Hono<AppEnv>()
   .use(requireRole("lead"))
@@ -59,6 +60,34 @@ export const manager = new Hono<AppEnv>()
       clockedIn: withBreaks,
       todayClosedMin: Object.fromEntries(todayMin),
     });
+  })
+
+  // ---- Entries (manager edit screen) ----
+  .get("/employees", async (c) => {
+    const rows = await getDb()
+      .select({ id: employees.id, displayName: employees.displayName, active: employees.active })
+      .from(employees)
+      .orderBy(employees.displayName);
+    return c.json({ employees: rows });
+  })
+
+  .get("/entries", async (c) => {
+    const q = z
+      .object({ employeeId: z.string().uuid(), from: z.coerce.date(), to: z.coerce.date() })
+      .safeParse({ employeeId: c.req.query("employeeId"), from: c.req.query("from"), to: c.req.query("to") });
+    if (!q.success) return c.json({ error: "bad_request" }, 400);
+    const rows = await getDb()
+      .select()
+      .from(timeEntries)
+      .where(
+        and(
+          eq(timeEntries.employeeId, q.data.employeeId),
+          gte(timeEntries.clockIn, q.data.from),
+          lt(timeEntries.clockIn, q.data.to),
+        ),
+      )
+      .orderBy(desc(timeEntries.clockIn));
+    return c.json({ entries: await hydrateEntries(rows) });
   })
 
   // ---- Pay periods ----

@@ -1,5 +1,5 @@
 name: Time Clock
-version: "0.6.3"
+version: "0.7.0"
 slug: timeclock
 description: >-
   Employee time-clock system (kiosk-first) with an immutable, hash-chained audit
@@ -41,3 +41,10 @@ options:
 schema:
   timezone: str
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
+  # Optional email alerts via Microsoft Graph (app registration with Mail.Send).
+  # email_to: comma-separated recipients.
+  email_tenant_id: str?
+  email_client_id: str?
+  email_client_secret: password?
+  email_from: email?
+  email_to: str?

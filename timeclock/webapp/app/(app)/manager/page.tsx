@@ -7,6 +7,7 @@ import {
   CalendarRange,
   Check,
   ChevronRight,
+  Pencil,
   ScrollText,
   X,
 } from "lucide-react";
@@ -311,6 +312,15 @@ export default function ManagerPage() {
       {/* Section links */}
       <Card className="py-1">
         <CardContent className="px-0">
+          <Link
+            href="/manager/entries"
+            className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
+          >
+            <Pencil className="size-5 text-muted-foreground" />
+            <span className="flex-1 text-sm font-medium">Edit entries</span>
+            <ChevronRight className="size-5 text-muted-foreground" />
+          </Link>
+          <Separator />
           <Link
             href="/manager/pay-periods"
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
