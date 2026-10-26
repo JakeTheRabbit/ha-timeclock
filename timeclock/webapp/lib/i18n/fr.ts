@@ -156,6 +156,7 @@ const fr: Partial<Record<keyof typeof import("./en").en, string>> = {
   "myHours.reasonLabel": "Motif (obligatoire)",
   "myHours.reasonPlaceholder": "ex. oubli de pointer la sortie",
   "myHours.asCorrection": "Envoyer comme demande de correction",
+  "myHours.locked": "Verrouillé — les heures ne peuvent être corrigées que le jour même et le lendemain. Envoyez une correction à valider par un manager.",
   "myHours.asCorrectionHint": "Un manager valide avant que les heures changent",
   "toast.correctionRequested": "Correction demandée — en attente de validation.",
   "toast.timesUpdated": "Heures mises à jour (marquées comme modifiées).",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3 — self-edits lock after the day after
+
+- **Staff can fix their own times on the shift's day and the day after**
+  (facility timezone), then the entry locks. A self-edit outside that window —
+  or one that moves a shift's clock-in into a locked day — is refused with
+  `423 edit_window_closed`, and nothing is written.
+- Locked entries open the My hours dialog as a correction request (a manager
+  approves before times change), with a "Locked" note instead of the toggle.
+- Every edit, refused or approved, still sits in the append-only hash-chained
+  audit log; nothing can delete it.
+
 ## 0.6.2 — optional direct LAN port
 
 - **Staff phones can clock in over site WiFi without an HA account.** The

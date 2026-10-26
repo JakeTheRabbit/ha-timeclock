@@ -8,6 +8,7 @@ import { requireRole } from "@/server/auth/rbac";
 import { applyEntryEdit, EditError } from "@/server/domain/time/edit";
 import { EditGuardError } from "@/server/domain/payperiod/errors";
 import { workedMinutes } from "@/server/domain/time/breaks";
+import { isSelfEditable } from "@/server/domain/time/edit-window";
 
 const rangeSchema = z.object({
   from: z.coerce.date(),
@@ -56,6 +57,7 @@ export async function hydrateEntries(entryRows: (typeof timeEntries.$inferSelect
         autoDeducted: b.autoDeducted,
       })),
       workedMinutes: e.clockOut ? workedMinutes(e.clockIn, e.clockOut, bs) : null,
+      selfEditable: isSelfEditable(e.clockIn),
     };
   });
 }
@@ -99,6 +101,11 @@ export const entries = new Hono<AppEnv>()
     });
     if (!entry) return c.json({ error: "not_found" }, 404);
     if (entry.employeeId !== me.id) return c.json({ error: "not_your_entry" }, 403);
+
+    // Self-edits close at the end of the day after the shift; the new clock-in
+    // must stay inside that window too (no moving a shift into a locked day).
+    if (!isSelfEditable(entry.clockIn) || (body.data.clockIn && !isSelfEditable(body.data.clockIn)))
+      return c.json({ error: "edit_window_closed" }, 423);
 
     const { reason, ...edit } = body.data;
     try {

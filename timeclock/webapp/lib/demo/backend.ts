@@ -14,6 +14,8 @@
  * Response shapes mirror the real Hono routes exactly (see server/routes/*).
  */
 
+import { isSelfEditable } from "@/server/domain/time/edit-window";
+
 type Json = Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
@@ -530,6 +532,7 @@ function handle(req: Req): { status: number; body: Json } {
         note: e.note,
         job: e.jobId ? { id: e.jobId, name: jobName(e.jobId)! } : null,
         workedMinutes: e.clockOut ? workedMin(e) : null,
+        selfEditable: isSelfEditable(new Date(e.clockIn)),
         breaks: entryBreaks(e.id).map((b) => ({ id: b.id, startAt: b.startAt, endAt: b.endAt, paid: b.paid, autoDeducted: b.autoDeducted })),
       }));
     return ok({ entries: rows });

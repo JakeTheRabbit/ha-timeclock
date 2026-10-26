@@ -167,6 +167,7 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "myHours.reasonLabel": "Grund (erforderlich)",
   "myHours.reasonPlaceholder": "z. B. Ausstempeln vergessen",
   "myHours.asCorrection": "Als Korrekturantrag senden",
+  "myHours.locked": "Gesperrt — Zeiten können nur am selben und am folgenden Tag korrigiert werden. Sende eine Korrektur zur Freigabe an eine Führungskraft.",
   "myHours.asCorrectionHint":
     "Eine Führungskraft genehmigt, bevor Zeiten geändert werden",
   "toast.correctionRequested": "Korrektur beantragt — Freigabe ausstehend.",

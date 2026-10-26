@@ -156,6 +156,7 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
   "myHours.reasonLabel": "Begrundelse (påkrævet)",
   "myHours.reasonPlaceholder": "f.eks. glemte at stemple ud",
   "myHours.asCorrection": "Send som rettelsesanmodning",
+  "myHours.locked": "Låst — tider kan kun rettes samme dag og dagen efter. Send en rettelse til godkendelse hos en leder.",
   "myHours.asCorrectionHint": "En leder godkender, før tiderne ændres",
   "toast.correctionRequested": "Rettelse anmodet — afventer godkendelse.",
   "toast.timesUpdated": "Tider opdateret (markeret som rettet).",

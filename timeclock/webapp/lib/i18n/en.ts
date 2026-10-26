@@ -168,6 +168,7 @@ const en = {
   "myHours.reasonLabel": "Reason (required)",
   "myHours.reasonPlaceholder": "e.g. forgot to clock out",
   "myHours.asCorrection": "Send as correction request",
+  "myHours.locked": "Locked — times can only be fixed on the day and the day after. Send a correction for a manager to approve.",
   "myHours.asCorrectionHint": "A manager approves before times change",
   "toast.correctionRequested": "Correction requested — awaiting approval.",
   "toast.timesUpdated": "Times updated (flagged as edited).",

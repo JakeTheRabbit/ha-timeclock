@@ -44,6 +44,7 @@ interface EntryRow {
   note: string | null;
   job: { id: string; name: string } | null;
   workedMinutes: number | null;
+  selfEditable: boolean;
   breaks: { id: string; startAt: string; endAt: string | null; paid: boolean; autoDeducted: boolean }[];
 }
 
@@ -302,7 +303,10 @@ function EditEntryDialog({
   const [cin, setCin] = useState(toLocal(entry.clockIn));
   const [cout, setCout] = useState(toLocal(entry.clockOut));
   const [reason, setReason] = useState("");
-  const [asCorrection, setAsCorrection] = useState(false);
+  // Past the day-after window a direct edit is refused (423) — only a
+  // manager-approved correction can change a locked entry.
+  const locked = !entry.selfEditable;
+  const [asCorrection, setAsCorrection] = useState(locked);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -363,19 +367,25 @@ function EditEntryDialog({
               placeholder={t("myHours.reasonPlaceholder")}
             />
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
-            <Label htmlFor="edit-as-correction" className="flex flex-col items-start gap-1">
-              {t("myHours.asCorrection")}
-              <span className="text-xs font-normal text-muted-foreground">
-                {t("myHours.asCorrectionHint")}
-              </span>
-            </Label>
-            <Switch
-              id="edit-as-correction"
-              checked={asCorrection}
-              onCheckedChange={setAsCorrection}
-            />
-          </div>
+          {locked ? (
+            <p className="rounded-lg border border-border p-3 text-sm text-muted-foreground">
+              {t("myHours.locked")}
+            </p>
+          ) : (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+              <Label htmlFor="edit-as-correction" className="flex flex-col items-start gap-1">
+                {t("myHours.asCorrection")}
+                <span className="text-xs font-normal text-muted-foreground">
+                  {t("myHours.asCorrectionHint")}
+                </span>
+              </Label>
+              <Switch
+                id="edit-as-correction"
+                checked={asCorrection}
+                onCheckedChange={setAsCorrection}
+              />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>

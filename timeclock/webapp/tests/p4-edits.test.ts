@@ -19,7 +19,8 @@ run("P4 edits + corrections (real Postgres)", () => {
     ({ app } = await import("@/server/hono"));
     w = await bootstrapWorld(app);
 
-    // A closed entry to edit: in 08:00, out 16:00 (yesterday, avoids TZ noise).
+    // A closed entry to edit, a few hours old — always inside the self-edit
+    // window (today or yesterday, facility TZ) whatever time the suite runs.
     await app.request("/api/clock/in", {
       method: "POST",
       headers: jsonHeaders(w.employeeCookie),
@@ -29,8 +30,8 @@ run("P4 edits + corrections (real Postgres)", () => {
     const { rows } = await admin.query("SELECT id FROM time_entries LIMIT 1");
     entryId = rows[0].id;
     await admin.query(
-      `UPDATE time_entries SET clock_in = now() - interval '26 hours',
-         clock_out = now() - interval '18 hours' WHERE id = $1`,
+      `UPDATE time_entries SET clock_in = now() - interval '200 minutes',
+         clock_out = now() - interval '120 minutes' WHERE id = $1`,
       [entryId],
     );
   }, 60_000);
@@ -50,7 +51,7 @@ run("P4 edits + corrections (real Postgres)", () => {
   });
 
   it("self-edit writes new value + audit old->new and flags entry", async () => {
-    const newOut = new Date(Date.now() - 17 * 3600_000).toISOString();
+    const newOut = new Date(Date.now() - 110 * 60_000).toISOString();
     const res = await app.request(`/api/entries/${entryId}`, {
       method: "PATCH",
       headers: jsonHeaders(w.employeeCookie),
@@ -79,6 +80,32 @@ run("P4 edits + corrections (real Postgres)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("self-edit locks after the day-after window (423), can't move a shift into it either", async () => {
+    const { rows } = await admin.query(
+      `INSERT INTO time_entries (employee_id, clock_in, clock_out)
+         SELECT employee_id, now() - interval '4 days', now() - interval '4 days' + interval '8 hours'
+         FROM time_entries WHERE id = $1 RETURNING id`,
+      [entryId],
+    );
+    const old = await app.request(`/api/entries/${rows[0].id}`, {
+      method: "PATCH",
+      headers: jsonHeaders(w.employeeCookie),
+      body: JSON.stringify({ note: "late fix", reason: "too late" }),
+    });
+    expect(old.status).toBe(423);
+    expect((await old.json()).error).toBe("edit_window_closed");
+
+    const moved = await app.request(`/api/entries/${entryId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(w.employeeCookie),
+      body: JSON.stringify({ clockIn: new Date(Date.now() - 4 * 86400_000).toISOString(), reason: "move it" }),
+    });
+    expect(moved.status).toBe(423);
+
+    const audit = await admin.query("SELECT count(*)::int n FROM audit_log WHERE action='self_edit'");
+    expect(audit.rows[0].n).toBe(1); // refused edits leave the entry and log untouched
+  });
+
   it("nonsense times rejected (out before in)", async () => {
     const res = await app.request(`/api/entries/${entryId}`, {
       method: "PATCH",
@@ -90,7 +117,7 @@ run("P4 edits + corrections (real Postgres)", () => {
   });
 
   it("correction request -> employee cannot approve own (RBAC) -> admin approves -> applied", async () => {
-    const reqOut = new Date(Date.now() - 16 * 3600_000).toISOString();
+    const reqOut = new Date(Date.now() - 100 * 60_000).toISOString();
     const create = await app.request("/api/corrections", {
       method: "POST",
       headers: jsonHeaders(w.employeeCookie),
