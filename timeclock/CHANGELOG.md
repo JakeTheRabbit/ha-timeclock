@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- Pay screen picker lists active employees only (deactivated duplicates were showing).
+
 ## 0.8.0 — pay tracking: rates, paid / not paid, bonuses
 
 - **Hourly rate per person** and a **Track pay** switch (*Admin → Employees*).

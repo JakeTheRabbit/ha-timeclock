@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { bonuses, employees } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
@@ -12,7 +12,7 @@ import { markPaid, paySummary, PayError } from "@/server/domain/pay/pay";
 export const pay = new Hono<AppEnv>()
   .use(requireRole("manager"))
 
-  // People with pay tracking on, for the Pay screen picker.
+  // Active people with pay tracking on, for the Pay screen picker.
   .get("/employees", async (c) => {
     const rows = await getDb()
       .select({
@@ -21,7 +21,7 @@ export const pay = new Hono<AppEnv>()
         hourlyRateCents: employees.hourlyRateCents,
       })
       .from(employees)
-      .where(eq(employees.payTracking, true))
+      .where(and(eq(employees.payTracking, true), eq(employees.active, true)))
       .orderBy(employees.displayName);
     return c.json({ employees: rows });
   })
