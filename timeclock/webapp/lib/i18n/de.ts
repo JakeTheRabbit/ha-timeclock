@@ -36,6 +36,7 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "route.managerAudit": "Protokoll",
   "route.managerEntries": "Einträge bearbeiten",
   "route.managerPay": "Lohn",
+  "route.managerInsights": "Übersicht",
   "route.managerPayPeriods": "Abrechnungszeiträume",
   "route.adminEmployees": "Mitarbeitende",
   "route.adminJobs": "Jobs",

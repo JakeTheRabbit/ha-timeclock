@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.9.0 — manager dashboard & calendar
+
+New **Manager → Dashboard & calendar** (lead+; pay figures manager+ only):
+
+- **Overview** for a range (this/last week, this/last month, 30/90 days):
+  hours worked, shifts, people, average shift, people on shift now,
+  no-door-swipe / late / edited counts, labour cost.
+- **Hours per day** — stacked by person (each person keeps a fixed colour),
+  hover/focus for the day's breakdown, legend, and a table view.
+- **When people are on site** — weekday × hour heatmap of person-hours.
+- **Workers table** — sortable: hours, shifts / days, average shift, average
+  start time, paid / unpaid break minutes, flags (no swipe, late vs roster,
+  edited), cost.
+- **Calendar** — month grid of who worked each day (hours, no-swipe warning);
+  tap a day for its shifts and roster.
+- **Timeline** — week view, a row per person: worked shifts as bars, rostered
+  shifts as outlines, flagged clock-ins edged amber.
+- **Activity** — recent clock-ins, edits, corrections, pay actions in plain
+  English.
+- `GET /api/manager/insights?from&to` returns the slice; all aggregation is
+  client-side (`lib/insights.ts`, unit-tested) so every view agrees.
+- Chart colours are a validated colour-blind-safe palette with light/dark
+  variants; every coloured mark is name-labelled.
+- Demo site: sample shifts now land in NZ working hours; dashboard works there.
+
 ## 0.8.1
 
 - Pay screen picker lists active employees only (deactivated duplicates were showing).

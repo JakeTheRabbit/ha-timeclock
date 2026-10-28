@@ -15,6 +15,7 @@
  */
 
 import { isSelfEditable } from "@/server/domain/time/edit-window";
+import { tzOffset } from "@/lib/tz";
 
 type Json = Record<string, unknown>;
 
@@ -121,9 +122,12 @@ function daysAgo(n: number): Date {
   return d;
 }
 /** A date `n` days ago at a given local-ish hour/min (UTC for determinism). */
+/** `hour:min` facility wall time, n days ago (sample shifts read as NZ hours). */
 function at(nDaysAgo: number, hour: number, min = 0): Date {
   const d = daysAgo(nDaysAgo);
-  d.setUTCHours(hour, min, 0, 0);
+  const [h, m] = tzOffset(d).replace("Z", "+00:00").slice(1).split(":").map(Number);
+  const sign = tzOffset(d).startsWith("-") ? -1 : 1;
+  d.setUTCHours(hour - sign * h, min - sign * m, 0, 0);
   return d;
 }
 
@@ -354,6 +358,9 @@ function me(): DemoEmployee {
 }
 function empName(id: string): string {
   return state.employees.find((e) => e.id === id)?.displayName ?? "Unknown";
+}
+function empRole(id: string): DemoEmployee["role"] | undefined {
+  return state.employees.find((e) => e.id === id)?.role;
 }
 function jobName(id: string | null): string | null {
   return state.jobs.find((j) => j.id === id)?.name ?? null;
@@ -672,6 +679,57 @@ function handle(req: Req): { status: number; body: Json } {
   }
 
   // ---- manager -----------------------------------------------------------
+  if (seg === "/manager/insights") {
+    const from = new Date(req.query.get("from") ?? daysAgo(30).toISOString());
+    const to = new Date(req.query.get("to") ?? new Date().toISOString());
+    const now = new Date();
+    const inRange = state.entries.filter((e) => new Date(e.clockIn) >= from && new Date(e.clockIn) < to);
+    const breakMin = (id: string, paid: boolean) =>
+      Math.round(
+        entryBreaks(id)
+          .filter((b) => b.paid === paid)
+          .reduce((a, b) => a + (new Date(b.endAt ?? now).getTime() - new Date(b.startAt).getTime()) / 60_000, 0),
+      );
+    return ok({
+      employees: state.employees.map((e, i) => ({
+        id: e.id,
+        displayName: e.displayName,
+        active: e.active,
+        slot: i % 8,
+        payTracking: e.role !== "admin",
+        hourlyRateCents: e.role === "admin" ? null : 2650,
+      })),
+      entries: inRange.map((e, i) => ({
+        id: e.id,
+        employeeId: e.employeeId,
+        clockIn: e.clockIn,
+        clockOut: e.clockOut,
+        workedMinutes: workedMin(e),
+        paidBreakMinutes: breakMin(e.id, true),
+        unpaidBreakMinutes: breakMin(e.id, false),
+        edited: e.edited,
+        fraudFlags: i % 11 === 3 ? ["no_door_access"] : [],
+        paid: false,
+        costCents: e.clockOut && empRole(e.employeeId) !== "admin" ? Math.round((workedMin(e) * 2650) / 60) : null,
+      })),
+      rosters: state.shifts
+        .filter((s) => s.shiftDate >= dayStr(from) && s.shiftDate <= dayStr(to))
+        .map((s) => ({ employeeId: s.employeeId, shiftDate: s.shiftDate, startMin: s.startMin, endMin: s.endMin })),
+      activity: state.audit
+        .filter((a) => new Date(a.createdAt) >= from && new Date(a.createdAt) < to)
+        .slice(-60)
+        .reverse()
+        .map((a) => ({
+          at: a.createdAt,
+          action: a.action,
+          entityType: a.entityType,
+          actor: a.actorId ? empName(a.actorId) : "system",
+          subject: null,
+          reason: a.reason,
+        })),
+      withPay: true,
+    });
+  }
   if (seg === "/manager/board") {
     const now = new Date();
     const clockedIn = state.entries

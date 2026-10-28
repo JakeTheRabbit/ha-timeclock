@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   CalendarRange,
+  ChartColumn,
   Check,
   ChevronRight,
   Pencil,
@@ -313,6 +314,15 @@ export default function ManagerPage() {
       {/* Section links */}
       <Card className="py-1">
         <CardContent className="px-0">
+          <Link
+            href="/manager/insights"
+            className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
+          >
+            <ChartColumn className="size-5 text-muted-foreground" />
+            <span className="flex-1 text-sm font-medium">Dashboard &amp; calendar</span>
+            <ChevronRight className="size-5 text-muted-foreground" />
+          </Link>
+          <Separator />
           <Link
             href="/manager/entries"
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"

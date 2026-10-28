@@ -40,6 +40,7 @@ const ROUTE_TITLES: Record<string, MessageKey> = {
   "/manager/pay-periods": "route.managerPayPeriods",
   "/manager/entries": "route.managerEntries",
   "/manager/pay": "route.managerPay",
+  "/manager/insights": "route.managerInsights",
   "/admin/employees": "route.adminEmployees",
   "/admin/jobs": "route.adminJobs",
   "/admin/settings": "route.adminSettings",
@@ -54,6 +55,7 @@ const PARENT_ROUTES: Record<string, string> = {
   "/manager/pay-periods": "/manager",
   "/manager/entries": "/manager",
   "/manager/pay": "/manager",
+  "/manager/insights": "/manager",
 };
 
 function parentOf(pathname: string): string {

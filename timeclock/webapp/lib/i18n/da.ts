@@ -28,6 +28,7 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
   "route.managerAudit": "Log",
   "route.managerEntries": "Ret registreringer",
   "route.managerPay": "Løn",
+  "route.managerInsights": "Overblik",
   "route.managerPayPeriods": "Lønperioder",
   "route.adminEmployees": "Medarbejdere",
   "route.adminJobs": "Jobs",

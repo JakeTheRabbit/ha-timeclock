@@ -39,6 +39,7 @@ const en = {
   "route.managerAudit": "Audit",
   "route.managerEntries": "Edit entries",
   "route.managerPay": "Pay",
+  "route.managerInsights": "Dashboard",
   "route.managerPayPeriods": "Pay periods",
   "route.adminEmployees": "Employees",
   "route.adminJobs": "Jobs",

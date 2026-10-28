@@ -4,7 +4,8 @@ import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { timeEntries, breaks, employees, payPeriods, auditLog } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
-import { requireRole } from "@/server/auth/rbac";
+import { requireRole, roleAtLeast } from "@/server/auth/rbac";
+import { insightsSlice } from "@/server/domain/insights";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { ensurePeriodContaining } from "@/server/domain/payperiod/periods";
 import { buildTimesheet } from "@/server/domain/payperiod/timesheet";
@@ -60,6 +61,17 @@ export const manager = new Hono<AppEnv>()
       clockedIn: withBreaks,
       todayClosedMin: Object.fromEntries(todayMin),
     });
+  })
+
+  // ---- Dashboard data (stats, charts, calendar, timeline, activity) ----
+  .get("/insights", async (c) => {
+    const q = z
+      .object({ from: z.coerce.date(), to: z.coerce.date() })
+      .refine((r) => r.to > r.from && r.to.getTime() - r.from.getTime() <= 400 * 86400_000)
+      .safeParse({ from: c.req.query("from"), to: c.req.query("to") });
+    if (!q.success) return c.json({ error: "bad_request" }, 400);
+    const withPay = roleAtLeast(c.get("auth")!.employee.role, "manager");
+    return c.json(await insightsSlice(q.data.from, q.data.to, withPay));
   })
 
   // ---- Entries (manager edit screen) ----

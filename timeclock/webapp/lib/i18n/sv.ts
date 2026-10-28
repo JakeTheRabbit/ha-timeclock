@@ -34,6 +34,7 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
   "route.managerAudit": "Granskning",
   "route.managerEntries": "Redigera poster",
   "route.managerPay": "Lön",
+  "route.managerInsights": "Översikt",
   "route.managerPayPeriods": "Löneperioder",
   "route.adminEmployees": "Anställda",
   "route.adminJobs": "Jobb",
