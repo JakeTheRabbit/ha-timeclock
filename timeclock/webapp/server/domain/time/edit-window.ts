@@ -9,15 +9,17 @@ function dayKey(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(d);
 }
 
-/** The local days on which a self-edit is still open: today and yesterday. */
-function openDays(now: Date): string[] {
-  const today = dayKey(now);
-  const [y, m, d] = today.split("-").map(Number);
-  const yesterday = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
-  return [today, yesterday];
+/** Yesterday's local day — the oldest day a self-edit is still open for. */
+function oldestOpenDay(now: Date): string {
+  const [y, m, d] = dayKey(now).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
 }
 
-/** True while an entry clocked in at `clockIn` may still be self-edited. */
+/**
+ * True while an entry clocked in at `clockIn` may still be self-edited:
+ * today or yesterday. (Later days pass here so a future time gets the
+ * clearer clock_in_in_future error from the edit itself.)
+ */
 export function isSelfEditable(clockIn: Date, now: Date = new Date()): boolean {
-  return openDays(now).includes(dayKey(clockIn));
+  return dayKey(clockIn) >= oldestOpenDay(now); // YYYY-MM-DD sorts as dates
 }

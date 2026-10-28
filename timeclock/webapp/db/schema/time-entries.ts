@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, timestamp, index, doublePrecision, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp, index, doublePrecision, jsonb, integer } from "drizzle-orm/pg-core";
 import { employees } from "./employees";
 
 export const timeEntries = pgTable(
@@ -19,6 +19,11 @@ export const timeEntries = pgTable(
     punchIp: text("punch_ip"),
     photoPath: text("photo_path"),
     fraudFlags: jsonb("fraud_flags").notNull().default([]).$type<string[]>(),
+    // Paid marker (0012): rate + amount snapshotted when marked paid.
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    paidBy: uuid("paid_by"),
+    paidRateCents: integer("paid_rate_cents"),
+    paidAmountCents: integer("paid_amount_cents"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

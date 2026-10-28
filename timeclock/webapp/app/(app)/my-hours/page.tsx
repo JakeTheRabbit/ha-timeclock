@@ -161,6 +161,11 @@ export default function MyHoursPage() {
                       {t("myHours.edited")}
                     </Badge>
                   )}
+                  {e.paidAt && (
+                    <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
+                      {t("myHours.paid")}
+                    </Badge>
+                  )}
                   <span className="ml-auto font-mono text-sm">{hrs(e.workedMinutes)}</span>
                 </div>
                 <div className="font-mono text-sm text-muted-foreground">
@@ -212,6 +217,11 @@ export default function MyHoursPage() {
                     {e.edited && (
                       <Badge className="ml-2 border-transparent bg-amber-500/15 text-amber-300">
                         {t("myHours.edited")}
+                      </Badge>
+                    )}
+                    {e.paidAt && (
+                      <Badge className="ml-2 border-transparent bg-emerald-500/15 text-emerald-300">
+                        {t("myHours.paid")}
                       </Badge>
                     )}
                   </TableCell>

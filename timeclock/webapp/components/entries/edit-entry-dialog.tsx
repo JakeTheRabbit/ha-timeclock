@@ -32,6 +32,7 @@ export interface EntryRow {
   workedMinutes: number | null;
   selfEditable: boolean;
   fraudFlags: string[];
+  paidAt: string | null;
   breaks: { id: string; startAt: string; endAt: string | null; paid: boolean; autoDeducted: boolean }[];
 }
 

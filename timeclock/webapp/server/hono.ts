@@ -13,6 +13,7 @@ import { reports } from "./routes/reports";
 import { ext } from "./routes/ext";
 import { locale } from "./routes/locale";
 import { avatars } from "./routes/avatars";
+import { pay } from "./routes/pay";
 import { contextMiddleware, type AppEnv } from "./context";
 
 // Next STRIPS its basePath before the App Router hands the request to this
@@ -36,6 +37,7 @@ app.route("/holidays", holidaysRoute);
 app.route("/roster", roster);
 app.route("/leave", leave);
 app.route("/manager", manager);
+app.route("/pay", pay);
 app.route("/reports", reports);
 app.route("/ext", ext);
 app.route("/avatars", avatars);

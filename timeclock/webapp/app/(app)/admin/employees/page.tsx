@@ -42,6 +42,8 @@ interface Emp {
   notifyService: string | null;
   presenceEntity: string | null;
   accessEntities: string[];
+  hourlyRateCents: number | null;
+  payTracking: boolean;
 }
 
 interface HaEntities {
@@ -469,6 +471,42 @@ export default function EmployeesAdminPage() {
                           data: { accessEntities: v.split(",").map((s) => s.trim()).filter(Boolean) },
                         })
                       }
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`rate-${e.id}`} className="text-xs text-muted-foreground">
+                      Hourly rate ($/h)
+                    </Label>
+                    <FreeTextField
+                      id={`rate-${e.id}`}
+                      value={e.hourlyRateCents == null ? null : (e.hourlyRateCents / 100).toFixed(2)}
+                      placeholder="e.g. 25.50"
+                      onSave={(v) => {
+                        const n = Number(v.replace(/[$,\s]/g, ""));
+                        if (v.trim() !== "" && (!Number.isFinite(n) || n < 0)) {
+                          toast.error("Rate must be a number, e.g. 25.50");
+                          return;
+                        }
+                        patch.mutate({
+                          id: e.id,
+                          data: { hourlyRateCents: v.trim() === "" ? null : Math.round(n * 100) },
+                        });
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                    <Label htmlFor={`paytrack-${e.id}`} className="flex flex-col items-start gap-1">
+                      Track pay
+                      <span className="text-xs font-normal text-muted-foreground">
+                        Off = no rate, amounts or bonuses for this person
+                      </span>
+                    </Label>
+                    <Switch
+                      id={`paytrack-${e.id}`}
+                      checked={e.payTracking}
+                      onCheckedChange={(v) => patch.mutate({ id: e.id, data: { payTracking: v } })}
                     />
                   </div>
                 </div>

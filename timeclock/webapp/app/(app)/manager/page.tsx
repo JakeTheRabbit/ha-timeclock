@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Pencil,
   ScrollText,
+  Wallet,
   X,
 } from "lucide-react";
 
@@ -321,6 +322,19 @@ export default function ManagerPage() {
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
           <Separator />
+          {["manager", "admin"].includes(session.employee.role) && (
+            <>
+              <Link
+                href="/manager/pay"
+                className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
+              >
+                <Wallet className="size-5 text-muted-foreground" />
+                <span className="flex-1 text-sm font-medium">Pay</span>
+                <ChevronRight className="size-5 text-muted-foreground" />
+              </Link>
+              <Separator />
+            </>
+          )}
           <Link
             href="/manager/pay-periods"
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"

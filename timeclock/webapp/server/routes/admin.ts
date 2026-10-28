@@ -48,6 +48,8 @@ const updateEmployeeSchema = z.object({
   notifyService: z.union([z.string().max(200), z.null()]).optional().transform((v) => (v === "" ? null : v)),
   presenceEntity: z.union([z.string().max(200), z.null()]).optional().transform((v) => (v === "" ? null : v)),
   accessEntities: accessEntitiesSchema.optional(),
+  hourlyRateCents: z.number().int().min(0).max(10_000_00).nullable().optional(),
+  payTracking: z.boolean().optional(),
 });
 
 const setPinSchema = z.object({ pin: z.string().min(4).max(12) });
@@ -68,6 +70,8 @@ export const admin = new Hono<AppEnv>()
         notifyService: employees.notifyService,
         presenceEntity: employees.presenceEntity,
         accessEntities: employees.accessEntities,
+        hourlyRateCents: employees.hourlyRateCents,
+        payTracking: employees.payTracking,
         createdAt: employees.createdAt,
       })
       .from(employees)
@@ -133,6 +137,8 @@ export const admin = new Hono<AppEnv>()
         active: before.active,
         haUsername: before.haUsername,
         accessEntities: before.accessEntities,
+        hourlyRateCents: before.hourlyRateCents,
+        payTracking: before.payTracking,
       },
       newValue: {
         displayName: after.displayName,
@@ -140,6 +146,8 @@ export const admin = new Hono<AppEnv>()
         active: after.active,
         haUsername: after.haUsername,
         accessEntities: after.accessEntities,
+        hourlyRateCents: after.hourlyRateCents,
+        payTracking: after.payTracking,
       },
     });
     void refreshIntegrationIfInstalled();

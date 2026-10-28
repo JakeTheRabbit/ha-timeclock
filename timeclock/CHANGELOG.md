@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.8.0 — pay tracking: rates, paid / not paid, bonuses
+
+- **Hourly rate per person** and a **Track pay** switch (*Admin → Employees*).
+  Tracking is on by default; off removes the person from the Pay screen and
+  refuses pay actions for them.
+- **Manager → Pay** (manager+ only — leads don't see rates): pick a person and
+  a range, see each entry's hours × rate, bonuses, what's owed, unpaid hours
+  and what's been paid. Tick entries/bonuses and **Mark paid** / **Mark
+  unpaid**, with an optional note (e.g. the bank reference).
+- **Paid time is settled.** Marking an entry paid snapshots the rate and
+  amount, so a later rate change never rewrites what was paid. Staff can no
+  longer edit a paid entry (`423 entry_paid`, shown as locked); managers still
+  can. Entries show a *Paid* badge in My hours and Edit entries.
+- **Bonuses**: amount, date, reason. Never deleted — a wrong one is voided
+  with a reason (the app's DB role has no DELETE on `bonuses`). Paid bonuses
+  can't be voided.
+- Every pay action (`mark_paid`, `mark_unpaid`, bonus `create` / `void`) is
+  in the hash-chained audit log.
+- Amounts are straight time (hours × rate). Overtime / stat-holiday multipliers
+  from the pay-period timesheet are not applied to these figures.
+- Staff edit window now also accepts future-dated times through to the edit,
+  so they get `clock_in_in_future` rather than a misleading "locked".
+- Migration `0012`: `employees.hourly_rate_cents`, `employees.pay_tracking`,
+  `time_entries.paid_*`, `bonuses` table.
+
 ## 0.7.0 — shift accuracy, manager edits, door-access flag, email
 
 - **Double-tap guard.** A clock-in within 60 s of a clock-out is refused

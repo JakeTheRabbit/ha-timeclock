@@ -101,6 +101,7 @@ export default function ManagerEntriesPage() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{loc.date(e.clockIn)}</span>
               {e.edited && <Badge className="border-transparent bg-amber-500/15 text-amber-300">Edited</Badge>}
+              {e.paidAt && <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Paid</Badge>}
               {e.fraudFlags.map((f) => (
                 <Badge key={f} className="border-transparent bg-destructive/15 text-destructive">
                   {FLAG_LABELS[f] ?? f}

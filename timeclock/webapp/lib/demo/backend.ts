@@ -534,6 +534,7 @@ function handle(req: Req): { status: number; body: Json } {
         workedMinutes: e.clockOut ? workedMin(e) : null,
         selfEditable: isSelfEditable(new Date(e.clockIn)),
         fraudFlags: [],
+        paidAt: null,
         breaks: entryBreaks(e.id).map((b) => ({ id: b.id, startAt: b.startAt, endAt: b.endAt, paid: b.paid, autoDeducted: b.autoDeducted })),
       }));
     return ok({ entries: rows });
@@ -744,6 +745,8 @@ function handle(req: Req): { status: number; body: Json } {
         notifyService: e.notifyService,
         presenceEntity: e.presenceEntity,
         accessEntities: [],
+        hourlyRateCents: null,
+        payTracking: true,
         createdAt: iso(daysAgo(40)),
       })),
     });

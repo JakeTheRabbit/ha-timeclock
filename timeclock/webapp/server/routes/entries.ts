@@ -57,7 +57,9 @@ export async function hydrateEntries(entryRows: (typeof timeEntries.$inferSelect
         autoDeducted: b.autoDeducted,
       })),
       workedMinutes: e.clockOut ? workedMinutes(e.clockIn, e.clockOut, bs) : null,
-      selfEditable: isSelfEditable(e.clockIn),
+      // Paid time is settled: staff can't change it (a manager still can).
+      selfEditable: isSelfEditable(e.clockIn) && e.paidAt == null,
+      paidAt: e.paidAt,
       fraudFlags: e.fraudFlags,
     };
   });
@@ -163,8 +165,9 @@ const breakSchema = z.object({
 
 /**
  * Who may edit this entry, and how it is audited: leads+ edit anyone's at any
- * time (manager_edit); owners only while the shift's day-after window is open,
- * and a moved start time must stay inside it (no shifting into a locked day).
+ * time (manager_edit); owners only while the shift's day-after window is open
+ * and it hasn't been paid, and a moved start time must stay inside the window
+ * (no shifting into a locked day).
  */
 function editAccess(
   me: Employee,
@@ -173,6 +176,7 @@ function editAccess(
 ): { source: EditSource } | { error: string; status: 403 | 423 } {
   if (roleAtLeast(me.role, "lead")) return { source: "manager_edit" };
   if (entry.employeeId !== me.id) return { error: "not_your_entry", status: 403 };
+  if (entry.paidAt) return { error: "entry_paid", status: 423 };
   if (!isSelfEditable(entry.clockIn) || (newClockIn && !isSelfEditable(newClockIn)))
     return { error: "edit_window_closed", status: 423 };
   return { source: "self_edit" };
