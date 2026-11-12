@@ -32,16 +32,39 @@ dark/light toggle and accent picker.
 
 ## Screenshots
 
+**Staff** (phone)
+
 | Kiosk sign-in | Clock in / out | Home |
 | --- | --- | --- |
-| ![Kiosk PIN sign-in](screenshots/pin.png) | ![Clock screen](screenshots/clock.png) | ![Home launcher](screenshots/home.png) |
+| ![Kiosk PIN sign-in with search and who's in](screenshots/pin.png) | ![Clock screen with break guidance](screenshots/clock.png) | ![Home status card](screenshots/home.png) |
 
-| Dashboard card | Graphs | Manager board |
+| My hours | Roster | Leave |
 | --- | --- | --- |
-| ![Dashboard card](screenshots/card-today.png) | ![Graphs](screenshots/card-graphs.png) | ![Manager](screenshots/manager.png) |
+| ![Month calendar, hour strips, week totals](screenshots/my-hours.png) | ![Week strip with shift bars](screenshots/roster.png) | ![Leave request with balance after](screenshots/leave.png) |
 
-More in [screenshots/](screenshots/): logs, totals, roster, leave, pay periods,
-audit viewer, and the admin screens.
+**Managers** (desktop)
+
+| Dashboard | Timesheet review |
+| --- | --- |
+| ![On the clock, due in, correction and leave approvals](screenshots/manager.png) | ![Approve days for everyone, grouped by person and week](screenshots/review.png) |
+
+| Entries calendar | Day editor |
+| --- | --- |
+| ![Month calendar per person with day cards](screenshots/entries.png) | ![Whole-day editor with Gantt strip and reason chips](screenshots/day-editor.png) |
+
+| Pay periods | Insights |
+| --- | --- |
+| ![Lock readiness checklist and per-day strips](screenshots/pay-periods.png) | ![Insights with previous-period comparisons](screenshots/insights.png) |
+
+**Home Assistant dashboard card**
+
+| Today | Graphs |
+| --- | --- |
+| ![Dashboard card](screenshots/card-today.png) | ![Graphs](screenshots/card-graphs.png) |
+
+More in [screenshots/](screenshots/): profile (`me`), audit log, employees,
+settings, devices, and the card's logs and totals. Regenerate the app shots
+from the demo with `scripts/capture-screenshots.py`.
 
 ---
 

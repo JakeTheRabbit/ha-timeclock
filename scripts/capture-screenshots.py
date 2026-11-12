@@ -31,6 +31,8 @@ def go(page: Page, path: str, wait_text: str | None = None) -> None:
 
 def shot(page: Page, name: str, full: bool = False) -> None:
     page.add_style_tag(content=HIDE)
+    page.evaluate("window.scrollTo(0, 0)")
+    page.wait_for_timeout(300)
     page.screenshot(path=str(OUT / f"{name}.png"), full_page=full)
     print("saved", name)
 
@@ -86,6 +88,17 @@ def desktop_shots(page: Page) -> None:
     go(page, "/manager/review/", "Approve days")
     page.wait_for_timeout(2000)
     shot(page, "review")
+    # Demo audit starts empty: generate some history for the audit shot.
+    # (No reload until /manager/audit or the demo resets the state.)
+    page.get_by_role("button", name="Approve all").first.click()
+    page.wait_for_timeout(2500)
+    page.get_by_role("link", name="Manager", exact=True).last.click()
+    page.wait_for_timeout(2000)
+    page.get_by_role("button", name="Approve").first.click()
+    page.wait_for_timeout(1500)
+    page.locator('a[href$="/manager/audit"], a[href$="/manager/audit/"]').first.click()
+    page.wait_for_timeout(2500)
+    shot(page, "audit")
     go(page, "/manager/entries/")
     pick_employee(page, "Priya Nair")
     shot(page, "entries")
@@ -100,9 +113,6 @@ def desktop_shots(page: Page) -> None:
     go(page, "/manager/insights/")
     page.wait_for_timeout(2500)
     shot(page, "insights", full=True)
-    go(page, "/manager/audit/")
-    page.wait_for_timeout(1500)
-    shot(page, "audit")
     go(page, "/admin/employees/")
     page.wait_for_timeout(1500)
     shot(page, "admin-employees", full=True)

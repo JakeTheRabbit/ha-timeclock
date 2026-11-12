@@ -91,7 +91,7 @@ run("P10 notifications + auto-clockout (real Postgres)", () => {
     );
     expect(audit.rows[0].n).toBe(1);
     expect(sent.length).toBe(before + 1);
-    expect((sent.at(-1)!.body as { message: string }).message).toContain("auto-clocked-out");
+    expect((sent.at(-1)!.body as { message: string }).message).toContain("clocked out automatically");
 
     // Second sweep: nothing left to close.
     expect(await runAutoClockout()).toBe(0);

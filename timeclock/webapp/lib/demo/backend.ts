@@ -141,7 +141,8 @@ interface DemoMod {
 let state: DemoState;
 
 const iso = (d: Date) => d.toISOString();
-const dayStr = (d: Date) => d.toISOString().slice(0, 10);
+// Facility-local calendar day (the real server uses the site timezone, not UTC).
+const dayStr = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: APP_TZ });
 function daysAgo(n: number): Date {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - n);
@@ -280,14 +281,22 @@ function seed(): DemoState {
     }
   }
 
+  // Each correction targets that worker's own recent closed shift, with
+  // requested times on the same day (a mismatched day showed silly totals).
+  const recentOf = (empId: string, skip: number) =>
+    entries
+      .filter((e) => e.employeeId === empId && e.clockOut)
+      .sort((a, b) => +new Date(b.clockIn) - +new Date(a.clockIn))[skip] ?? entries[0];
+  const fixOut = recentOf(workers[2].id, 1);
+  const fixIn = recentOf(workers[3].id, 2);
   const corrections: DemoCorrection[] = [
     {
       id: uuid(300),
       employeeId: workers[2].id,
       employeeName: workers[2].displayName,
-      entryId: entries[0].id,
-      reason: "Forgot to clock out on Tuesday",
-      requested: { clockOut: iso(at(2, 17, 30)) },
+      entryId: fixOut.id,
+      reason: "Forgot to clock out — left at 5:30",
+      requested: { clockOut: iso(new Date(new Date(fixOut.clockOut!).getTime() + 40 * 60_000)) },
       status: "pending",
       createdAt: iso(daysAgo(1)),
     },
@@ -295,9 +304,9 @@ function seed(): DemoState {
       id: uuid(305),
       employeeId: workers[3].id,
       employeeName: workers[3].displayName,
-      entryId: entries[1].id,
+      entryId: fixIn.id,
       reason: "Clocked in late by mistake — was actually on time",
-      requested: { clockIn: iso(at(3, 8, 0)) },
+      requested: { clockIn: iso(new Date(new Date(fixIn.clockIn).getTime() - 25 * 60_000)) },
       status: "pending",
       createdAt: iso(daysAgo(2)),
     },
@@ -1390,8 +1399,38 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 // enough for the app (returns a real Response so the caller is unchanged).
 // ---------------------------------------------------------------------------
 
+/** A few days of believable audit history so the Audit page isn't empty. */
+function seedAudit() {
+  const recent = [...state.entries]
+    .filter((e) => e.clockOut)
+    .sort((a, b) => +new Date(b.clockIn) - +new Date(a.clockIn))
+    .slice(0, 10);
+  const rows: Omit<DemoAudit, "id" | "hash">[] = [];
+  for (const e of recent) {
+    rows.push({ createdAt: e.clockIn, entityType: "time_entry", entityId: e.id, action: "clock_in", actorId: e.employeeId, reason: null, oldValue: null, newValue: JSON.stringify({ clockIn: e.clockIn }) });
+    rows.push({ createdAt: e.clockOut!, entityType: "time_entry", entityId: e.id, action: "clock_out", actorId: e.employeeId, reason: null, oldValue: null, newValue: JSON.stringify({ clockOut: e.clockOut }) });
+  }
+  const edited = recent[3];
+  if (edited) {
+    const was = new Date(new Date(edited.clockOut!).getTime() - 25 * 60_000).toISOString();
+    rows.push({ createdAt: new Date(new Date(edited.clockOut!).getTime() + 3600_000).toISOString(), entityType: "time_entry", entityId: edited.id, action: "self_edit", actorId: edited.employeeId, reason: "Forgot to clock out", oldValue: JSON.stringify({ clockOut: was }), newValue: JSON.stringify({ clockOut: edited.clockOut }) });
+  }
+  for (const l of state.leave)
+    rows.push({ createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), entityType: "leave_request", entityId: l.id, action: "request", actorId: l.employeeId, reason: null, oldValue: null, newValue: JSON.stringify({ type: l.type, startDate: l.startDate, endDate: l.endDate }) });
+  rows.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
+  state.audit = rows
+    .map((r) => {
+      const id = state.auditSeq++;
+      return { ...r, id, hash: uuid(id + 9000).replace(/-/g, "").slice(0, 40) };
+    })
+    .reverse();
+}
+
 export async function demoFetch(fullPath: string, init?: RequestInit): Promise<Response> {
-  if (!state) state = seed();
+  if (!state) {
+    state = seed();
+    seedAudit();
+  }
   // fullPath is like "<base>/api/clock/status?x=1"; strip everything up to /api.
   const apiIdx = fullPath.indexOf("/api/");
   const rel = apiIdx >= 0 ? fullPath.slice(apiIdx + 4) : fullPath; // keep leading "/..."
@@ -1417,4 +1456,5 @@ export async function demoFetch(fullPath: string, init?: RequestInit): Promise<R
 /** Test/util: force a fresh seed. */
 export function _reseed() {
   state = seed();
+  seedAudit();
 }
