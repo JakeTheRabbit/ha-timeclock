@@ -19,6 +19,7 @@ import {
 } from "@/server/integrations/ha/install";
 import { schedulePush } from "@/server/integrations/ha/state-push";
 import { notify } from "@/server/integrations/notify";
+import { serverT } from "@/server/i18n";
 
 // Optional string that clears to NULL when blank (unset a mapping from the UI).
 const optClearable = z
@@ -332,10 +333,11 @@ export const admin = new Hono<AppEnv>()
   // Fire a test message through every enabled channel (HA notify, email).
   .post("/notify/test", async (c) => {
     const me = c.get("auth")!.employee;
+    const { t } = await serverT();
     return c.json(
       await notify({
-        title: "Test notification",
-        message: `Sent by ${me.displayName} from Time Clock settings. If you can read this, alerts are working.`,
+        title: t("push.testTitle"),
+        message: t("push.testBody", { name: me.displayName }),
       }),
     );
   })

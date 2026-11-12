@@ -48,6 +48,8 @@ const ROUTE_TITLES: Record<string, MessageKey> = {
   "/admin/employees": "route.adminEmployees",
   "/admin/jobs": "route.adminJobs",
   "/admin/settings": "route.adminSettings",
+  "/admin/devices": "home.devices.label",
+  "/manager/leave-balances": "home.leaveBalances.label",
 };
 
 /**
@@ -193,8 +195,8 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
               <span className="hidden max-w-28 truncate text-sm text-muted-foreground sm:inline">
                 {employee.displayName}
               </span>
-              <Badge variant="secondary" className="hidden capitalize sm:inline-flex">
-                {employee.role}
+              <Badge variant="secondary" className="hidden sm:inline-flex">
+                {t(`role.${employee.role}` as MessageKey)}
               </Badge>
               <Button
                 variant="ghost"
@@ -218,7 +220,7 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
 
       {/* Bottom nav */}
       <nav
-        aria-label="Primary"
+        aria-label={t("shell.primaryNav")}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-background/90 pb-safe backdrop-blur"
       >
         <div className="flex h-16 items-stretch">

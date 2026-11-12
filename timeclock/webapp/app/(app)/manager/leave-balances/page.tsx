@@ -9,6 +9,7 @@ import { apiGet, apiPost } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { roleAtLeast } from "@/server/auth/rbac";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { STATUS_TEXT } from "@/components/ui/status-badge";
 
 interface Person {
   id: string;
@@ -48,13 +50,24 @@ interface LedgerRow {
   createdAt: string;
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  annual: "Annual",
-  sick: "Sick",
-  bereavement: "Bereavement",
-  alt_holiday: "Alt holiday",
+const TYPE_KEY: Record<string, MessageKey> = {
+  annual: "leave.typeAnnual",
+  sick: "leave.typeSick",
+  bereavement: "leave.typeBereavement",
+  alt_holiday: "leave.typeAltHoliday",
+  unpaid: "leave.typeUnpaid",
 };
-const typeLabel = (t: string) => TYPE_LABEL[t] ?? t;
+const SOURCE_KEY: Record<string, MessageKey> = {
+  accrual: "leaveBal.source.accrual",
+  request: "leaveBal.source.request",
+  adjustment: "leaveBal.source.adjustment",
+};
+
+/** Translated leave type (unknown types shown as-is). */
+function useTypeLabel() {
+  const t = useT();
+  return (type: string) => (TYPE_KEY[type] ? t(TYPE_KEY[type]) : type);
+}
 
 function Container({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
@@ -62,6 +75,8 @@ function Container({ children }: { children: React.ReactNode }) {
 
 export default function LeaveBalancesPage() {
   const qc = useQueryClient();
+  const t = useT();
+  const typeLabel = useTypeLabel();
   const loc = useLocale();
   const { session, isLoading } = useSession();
   const canSee = !!session && roleAtLeast(session.employee.role, "manager");
@@ -83,8 +98,8 @@ export default function LeaveBalancesPage() {
     onSuccess: (r) => {
       toast.success(
         r.results.length
-          ? `Accrued annual leave for ${r.results.length} ${r.results.length === 1 ? "person" : "people"}.`
-          : "Nothing new to accrue.",
+          ? t(r.results.length === 1 ? "leaveBal.accrued.one" : "leaveBal.accrued.other", { n: r.results.length })
+          : t("leaveBal.nothingToAccrue"),
       );
       refresh();
     },
@@ -104,7 +119,7 @@ export default function LeaveBalancesPage() {
       <Container>
         <Card>
           <CardContent>
-            <p className="text-sm text-destructive">Manager role required.</p>
+            <p className="text-sm text-destructive">{t("pay.managerRequired")}</p>
           </CardContent>
         </Card>
       </Container>
@@ -118,22 +133,19 @@ export default function LeaveBalancesPage() {
     <Container>
       <Card>
         <CardHeader>
-          <CardTitle>Leave balances</CardTitle>
-          <CardDescription>
-            Annual leave accrues at {h(rate * 100)}% of hours worked (4 weeks a year), every Monday 03:00 or
-            when you run it here. Pending requests are shown under each balance; they come off when approved.
-          </CardDescription>
+          <CardTitle>{t("home.leaveBalances.label")}</CardTitle>
+          <CardDescription>{t("leaveBal.hint", { pct: h(rate * 100) })}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="secondary" onClick={() => accrue.mutate()} disabled={accrue.isPending}>
-            <RefreshCw className={cn(accrue.isPending && "animate-spin")} /> Run accrual now
+            <RefreshCw className={cn(accrue.isPending && "animate-spin")} /> {t("leaveBal.runAccrual")}
           </Button>
         </CardContent>
       </Card>
 
       {data.isLoading && <Skeleton className="h-64 w-full rounded-xl" />}
       {data.data?.employees.length === 0 && (
-        <p className="py-6 text-center text-sm text-muted-foreground">No active staff.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">{t("leaveBal.noStaff")}</p>
       )}
 
       {data.data?.employees.map((p) => (
@@ -142,28 +154,28 @@ export default function LeaveBalancesPage() {
             <div className="flex flex-col">
               <CardTitle>{p.displayName}</CardTitle>
               <span className="text-xs text-muted-foreground">
-                {p.accruedThrough ? `Accrued through ${loc.dateTime(p.accruedThrough)}` : "Not accrued yet"}
+                {p.accruedThrough ? t("leaveBal.accruedThrough", { when: loc.dateTime(p.accruedThrough) }) : t("leaveBal.notAccrued")}
               </span>
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => setOpen(open === p.id ? null : p.id)}>
-                <ChevronDown className={cn("transition-transform", open === p.id && "rotate-180")} /> History
+                <ChevronDown className={cn("transition-transform", open === p.id && "rotate-180")} /> {t("leaveBal.history")}
               </Button>
               <Button variant="secondary" size="sm" onClick={() => setAdjusting(p)}>
-                <SlidersHorizontal /> Adjust
+                <SlidersHorizontal /> {t("leaveBal.adjust")}
               </Button>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {types.map((t) => (
-                <div key={t} className="rounded-md border border-border px-3 py-2">
-                  <div className="text-xs text-muted-foreground">{typeLabel(t)}</div>
-                  <div className={cn("font-semibold tabular-nums", p.balances[t] < 0 && "text-destructive")}>
-                    {h(p.balances[t] ?? 0)}h
+              {types.map((ty) => (
+                <div key={ty} className="rounded-md border border-border px-3 py-2">
+                  <div className="text-xs text-muted-foreground">{typeLabel(ty)}</div>
+                  <div className={cn("font-semibold tabular-nums", p.balances[ty] < 0 && "text-destructive")}>
+                    {h(p.balances[ty] ?? 0)}h
                   </div>
-                  {(p.pending[t] ?? 0) > 0 && (
-                    <div className="text-xs text-amber-500">{h(p.pending[t])}h pending</div>
+                  {(p.pending[ty] ?? 0) > 0 && (
+                    <div className={cn("text-xs", STATUS_TEXT.pending)}>{t("leaveBal.pendingH", { hours: h(p.pending[ty]) })}</div>
                   )}
                 </div>
               ))}
@@ -189,13 +201,15 @@ export default function LeaveBalancesPage() {
 }
 
 function Ledger({ employeeId }: { employeeId: string }) {
+  const t = useT();
+  const typeLabel = useTypeLabel();
   const loc = useLocale();
   const q = useQuery({
     queryKey: ["leave-ledger", employeeId],
     queryFn: () => apiGet<{ entries: LedgerRow[] }>(`/leave/ledger/${employeeId}`),
   });
   if (q.isLoading) return <Skeleton className="h-20 w-full" />;
-  if (!q.data?.entries.length) return <p className="text-sm text-muted-foreground">No ledger entries.</p>;
+  if (!q.data?.entries.length) return <p className="text-sm text-muted-foreground">{t("leaveBal.noLedger")}</p>;
   return (
     <ul className="flex flex-col divide-y divide-border rounded-md border border-border text-sm">
       {q.data.entries.map((r) => {
@@ -204,12 +218,12 @@ function Ledger({ employeeId }: { employeeId: string }) {
           <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2">
             <span className="w-24 shrink-0 text-xs text-muted-foreground">{loc.date(r.createdAt)}</span>
             <span className="w-24 shrink-0">{typeLabel(r.type)}</span>
-            <span className={cn("w-16 shrink-0 tabular-nums", n < 0 ? "text-destructive" : "text-emerald-500")}>
+            <span className={cn("w-16 shrink-0 tabular-nums", n < 0 ? "text-destructive" : STATUS_TEXT.approved)}>
               {n > 0 ? "+" : ""}
               {loc.number(n, { maximumFractionDigits: 2 })}h
             </span>
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
-              {r.source}
+              {SOURCE_KEY[r.source] ? t(SOURCE_KEY[r.source]) : r.source}
               {r.note ? ` · ${r.note}` : ""}
             </span>
           </li>
@@ -230,6 +244,8 @@ function AdjustDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useT();
+  const typeLabel = useTypeLabel();
   const loc = useLocale();
   const [type, setType] = useState(types[0] ?? "annual");
   const [sign, setSign] = useState<1 | -1>(1);
@@ -243,7 +259,7 @@ function AdjustDialog({
     mutationFn: () =>
       apiPost("/leave/adjust", { employeeId: person.id, type, deltaHours: sign * n, note: note.trim() }),
     onSuccess: () => {
-      toast.success(`${person.displayName}: ${typeLabel(type)} ${sign > 0 ? "+" : "−"}${n}h recorded.`);
+      toast.success(t("leaveBal.recorded", { name: person.displayName, type: typeLabel(type), delta: `${sign > 0 ? "+" : "−"}${n}` }));
       onDone();
     },
     onError: (e) => toast.error(apiErrorText(e)),
@@ -253,27 +269,27 @@ function AdjustDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Adjust {person.displayName}</DialogTitle>
-          <DialogDescription>Recorded in the leave ledger and the audit log with your reason.</DialogDescription>
+          <DialogTitle>{t("leaveBal.adjustTitle", { name: person.displayName })}</DialogTitle>
+          <DialogDescription>{t("leaveBal.adjustHint")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label>Leave type</Label>
+            <Label>{t("leaveBal.leaveType")}</Label>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {types.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {typeLabel(t)} ({loc.number(person.balances[t] ?? 0, { maximumFractionDigits: 2 })}h)
+                {types.map((ty) => (
+                  <SelectItem key={ty} value={ty}>
+                    {typeLabel(ty)} ({loc.number(person.balances[ty] ?? 0, { maximumFractionDigits: 2 })}h)
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="adj-hours">Hours</Label>
+            <Label htmlFor="adj-hours">{t("leave.hoursField")}</Label>
             <div className="flex gap-2">
               <div className="flex rounded-md border border-border p-0.5">
                 <Button
@@ -283,7 +299,7 @@ function AdjustDialog({
                   aria-pressed={sign > 0}
                   onClick={() => setSign(1)}
                 >
-                  <Plus /> Add
+                  <Plus /> {t("pay.add")}
                 </Button>
                 <Button
                   type="button"
@@ -292,7 +308,7 @@ function AdjustDialog({
                   aria-pressed={sign < 0}
                   onClick={() => setSign(-1)}
                 >
-                  <Minus /> Remove
+                  <Minus /> {t("myHours.remove")}
                 </Button>
               </div>
               <Input
@@ -307,26 +323,26 @@ function AdjustDialog({
               />
             </div>
             <span className="text-xs text-muted-foreground">
-              Balance after: {loc.number(after, { maximumFractionDigits: 2 })}h
+              {t("leaveBal.balanceAfter", { hours: loc.number(after, { maximumFractionDigits: 2 }) })}
             </span>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="adj-note">Reason</Label>
+            <Label htmlFor="adj-note">{t("pay.reason")}</Label>
             <Input
               id="adj-note"
               value={note}
               maxLength={300}
-              placeholder="e.g. Opening balance from old payroll"
+              placeholder={t("leaveBal.notePlaceholder")}
               onChange={(e) => setNote(e.target.value)}
             />
           </div>
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
+            <Button variant="outline">{t("common.cancel")}</Button>
           </DialogClose>
           <Button disabled={!valid || save.isPending} onClick={() => save.mutate()}>
-            Save adjustment
+            {t("leaveBal.save")}
           </Button>
         </DialogFooter>
       </DialogContent>

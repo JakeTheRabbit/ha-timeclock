@@ -11,6 +11,7 @@ import { EditGuardError } from "@/server/domain/payperiod/errors";
 import { dayOf } from "@/server/domain/time/day-review";
 import { hydrateEntries } from "@/server/routes/entries";
 import { notifyEmployee } from "@/server/integrations/notify/personal";
+import { serverT } from "@/server/i18n";
 
 const requestSchema = z.object({
   timeEntryId: z.string().uuid(),
@@ -32,10 +33,11 @@ async function notifyDecision(employeeId: string, timeEntryId: string, approved:
   const emp = await db.query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, employeeId) });
   if (!emp) return;
   const entry = await db.query.timeEntries.findFirst({ where: (t, { eq: eq_ }) => eq_(t.id, timeEntryId) });
-  const day = entry ? ` for ${dayOf(entry.clockIn)}` : "";
+  const { t } = await serverT();
+  const day = entry ? dayOf(entry.clockIn) : "—";
   void notifyEmployee(emp, {
-    title: approved ? "Time Clock: correction approved" : "Time Clock: correction declined",
-    message: `Your correction${day} was ${approved ? "approved" : "declined"}${note ? `: ${note}` : "."}`,
+    title: t(approved ? "push.correctionApprovedTitle" : "push.correctionDeclinedTitle"),
+    message: t(approved ? "push.correctionApprovedBody" : "push.correctionDeclinedBody", { day }) + (note ? `: ${note}` : "."),
   });
 }
 

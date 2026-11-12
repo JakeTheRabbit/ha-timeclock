@@ -21,7 +21,7 @@ import {
 } from "@/lib/leave-days";
 import { cn } from "@/lib/utils";
 import { localDay, typicalFrom, type EntryRow } from "@/components/entries/edit-entry-dialog";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -74,10 +74,11 @@ const STATUS_KEY: Record<string, MessageKey> = {
 const typeLabel = (type: string, t: TFn) =>
   TYPE_KEY[type] ? t(TYPE_KEY[type]) : type.replace("_", " ");
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: "border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-300",
-  approved: "border-transparent bg-emerald-500/15 text-emerald-300",
-  rejected: "border-transparent bg-rose-500/15 text-rose-300",
+const STATUS_TONE: Record<string, Status> = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "declined",
+  cancelled: "cancelled",
 };
 
 const errMsg = (e: unknown, t: TFn) => apiErrorText(e, t);
@@ -388,9 +389,9 @@ export default function LeavePage() {
                                 <Undo2 /> {t("leave.withdraw")}
                               </Button>
                             )}
-                            <Badge variant="secondary" className={cn("capitalize", STATUS_BADGE[r.status])}>
+                            <StatusBadge status={STATUS_TONE[r.status] ?? "cancelled"} className="capitalize">
                               {STATUS_KEY[r.status] ? t(STATUS_KEY[r.status]) : r.status}
-                            </Badge>
+                            </StatusBadge>
                           </span>
                         </div>
                         {r.note && (

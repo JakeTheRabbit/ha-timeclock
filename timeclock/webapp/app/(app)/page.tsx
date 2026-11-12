@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -147,15 +148,17 @@ function StatusCard() {
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
-            <Badge variant={open ? "default" : "secondary"}>
-              {!open
-                ? t("clock.clockedOut")
-                : !open.onBreak
+            {!open ? (
+              <Badge variant="secondary">{t("clock.clockedOut")}</Badge>
+            ) : (
+              <StatusBadge status="open">
+                {!open.onBreak
                   ? t("clock.clockedIn")
                   : open.onBreak.paid
                     ? t("clock.onBreakPaid")
                     : t("clock.onBreakUnpaid")}
-            </Badge>
+              </StatusBadge>
+            )}
             {open ? (
               <>
                 <div className="font-mono text-4xl tabular-nums">{timer}</div>
@@ -216,10 +219,10 @@ function StatusCard() {
         {disputedDays > 0 && (
           <Link
             href="/my-hours"
-            className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300 hover:bg-amber-500/20"
+            className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
           >
             <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
-            {t("home.status.disputes", { n: disputedDays })}
+            {t(disputedDays === 1 ? "home.status.disputes.one" : "home.status.disputes.other", { n: disputedDays })}
           </Link>
         )}
         {pendingLeave > 0 && (
@@ -228,7 +231,7 @@ function StatusCard() {
             className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-accent"
           >
             <TreePalm className="size-4 shrink-0" aria-hidden="true" />
-            {t("home.status.pendingLeave", { n: pendingLeave })}
+            {t(pendingLeave === 1 ? "home.status.pendingLeave.one" : "home.status.pendingLeave.other", { n: pendingLeave })}
           </Link>
         )}
       </CardContent>
@@ -260,7 +263,7 @@ export default function Home() {
           <Skeleton className="h-24 rounded-xl" />
         </div>
       ) : session ? (
-        <nav aria-label="Sections" className="grid grid-cols-2 gap-3">
+        <nav aria-label={t("home.sections")} className="grid grid-cols-2 gap-3">
           <Tile
             href="/clock"
             icon={Timer}

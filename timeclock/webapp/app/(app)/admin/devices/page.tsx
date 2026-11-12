@@ -9,7 +9,9 @@ import { apiGet, apiPost, apiPatch } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,6 +43,7 @@ function Container({ children }: { children: React.ReactNode }) {
 export default function DevicesAdminPage() {
   const qc = useQueryClient();
   const loc = useLocale();
+  const t = useT();
   const { session, isLoading } = useSession();
   const isAdmin = session?.employee.role === "admin";
   const [renaming, setRenaming] = useState<Device | null>(null);
@@ -56,7 +59,7 @@ export default function DevicesAdminPage() {
   const bind = useMutation({
     mutationFn: () => apiPost("/admin/devices/bind", { name: `Kiosk ${new Date().toISOString().slice(0, 10)}` }),
     onSuccess: () => {
-      toast.success("This device is now a bound kiosk.");
+      toast.success(t("devices.bound"));
       refresh();
     },
     onError: (e) => toast.error(apiErrorText(e)),
@@ -64,7 +67,7 @@ export default function DevicesAdminPage() {
   const rename = useMutation({
     mutationFn: (v: { id: string; name: string }) => apiPatch(`/admin/devices/${v.id}`, { name: v.name }),
     onSuccess: () => {
-      toast.success("Device renamed.");
+      toast.success(t("devices.renamed"));
       setRenaming(null);
       refresh();
     },
@@ -73,7 +76,7 @@ export default function DevicesAdminPage() {
   const revoke = useMutation({
     mutationFn: (id: string) => apiPost(`/admin/devices/${id}/revoke`),
     onSuccess: () => {
-      toast.success("Device revoked — it can no longer sign people in.");
+      toast.success(t("devices.revokedToast"));
       setRevoking(null);
       refresh();
     },
@@ -82,9 +85,13 @@ export default function DevicesAdminPage() {
   const testNotify = useMutation({
     mutationFn: () => apiPost<{ sent: string[]; failed: string[] }>("/admin/notify/test"),
     onSuccess: (r) => {
-      if (r.failed.length) toast.error(`Failed: ${r.failed.join(", ")}${r.sent.length ? ` · sent: ${r.sent.join(", ")}` : ""}`);
-      else if (r.sent.length) toast.success(`Test sent via ${r.sent.join(", ")}.`);
-      else toast.warning("No notification channel is enabled.");
+      if (r.failed.length)
+        toast.error(
+          t("devices.testFailed", { list: r.failed.join(", ") }) +
+            (r.sent.length ? ` · ${t("devices.testSentList", { list: r.sent.join(", ") })}` : ""),
+        );
+      else if (r.sent.length) toast.success(t("devices.testSent", { list: r.sent.join(", ") }));
+      else toast.warning(t("devices.noChannel"));
     },
     onError: (e) => toast.error(apiErrorText(e)),
   });
@@ -102,7 +109,7 @@ export default function DevicesAdminPage() {
       <Container>
         <Card>
           <CardContent>
-            <p className="text-sm text-destructive">Admin role required.</p>
+            <p className="text-sm text-destructive">{t("common.adminRequired")}</p>
           </CardContent>
         </Card>
       </Container>
@@ -117,22 +124,19 @@ export default function DevicesAdminPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <MonitorSmartphone className="size-5" aria-hidden="true" /> Kiosk devices
+            <MonitorSmartphone className="size-5" aria-hidden="true" /> {t("devices.title")}
           </CardTitle>
-          <CardDescription>
-            Bound devices are only required when Settings → kiosk → requireDeviceBinding is on. Revoking a
-            device stops PIN sign-in on it.
-          </CardDescription>
+          <CardDescription>{t("devices.hint")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div>
             <Button onClick={() => bind.mutate()} disabled={bind.isPending || thisBound}>
-              <Plus /> {thisBound ? "This device is bound" : "Bind this device"}
+              <Plus /> {thisBound ? t("devices.thisIsBound") : t("devices.bindThis")}
             </Button>
           </div>
           {list.isLoading && <Skeleton className="h-16 w-full" />}
           {list.isSuccess && devices.length === 0 && (
-            <p className="text-sm text-muted-foreground">No kiosk devices bound yet.</p>
+            <p className="text-sm text-muted-foreground">{t("devices.none")}</p>
           )}
           {devices.map((d) => (
             <div
@@ -144,19 +148,25 @@ export default function DevicesAdminPage() {
                   {d.name}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  Last seen {d.lastSeenAt ? loc.dateTime(d.lastSeenAt) : "never"} · bound{" "}
-                  {loc.date(d.createdAt)}
-                  {d.boundBy ? ` by ${d.boundBy}` : ""}
+                  {t("devices.lastSeen", { when: d.lastSeenAt ? loc.dateTime(d.lastSeenAt) : t("devices.never") })}
+                  {" · "}
+                  {d.boundBy
+                    ? t("devices.boundOnBy", { date: loc.date(d.createdAt), name: d.boundBy })
+                    : t("devices.boundOn", { date: loc.date(d.createdAt) })}
                 </span>
               </div>
-              {d.id === current && <Badge variant="outline">This device</Badge>}
-              <Badge variant={d.active ? "default" : "secondary"}>{d.active ? "Active" : "Revoked"}</Badge>
+              {d.id === current && <Badge variant="outline">{t("devices.thisDevice")}</Badge>}
+              {d.active ? (
+                <StatusBadge status="approved">{t("devices.active")}</StatusBadge>
+              ) : (
+                <StatusBadge status="cancelled">{t("devices.revoked")}</StatusBadge>
+              )}
               <Button variant="ghost" size="sm" onClick={() => setRenaming(d)}>
-                <Pencil /> Rename
+                <Pencil /> {t("devices.rename")}
               </Button>
               {d.active && (
                 <Button variant="secondary" size="sm" onClick={() => setRevoking(d)}>
-                  <ShieldOff /> Revoke
+                  <ShieldOff /> {t("devices.revoke")}
                 </Button>
               )}
             </div>
@@ -167,16 +177,13 @@ export default function DevicesAdminPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <BellRing className="size-5" aria-hidden="true" /> Notifications
+            <BellRing className="size-5" aria-hidden="true" /> {t("devices.notifyTitle")}
           </CardTitle>
-          <CardDescription>
-            Sends a test through every enabled channel (HA notify service, email) set in Settings →
-            notifications.
-          </CardDescription>
+          <CardDescription>{t("devices.notifyHint")}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="secondary" onClick={() => testNotify.mutate()} disabled={testNotify.isPending}>
-            <BellRing /> Send test
+            <BellRing /> {t("devices.sendTest")}
           </Button>
         </CardContent>
       </Card>
@@ -193,22 +200,19 @@ export default function DevicesAdminPage() {
       <Dialog open={!!revoking} onOpenChange={(o) => !o && setRevoking(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Revoke {revoking?.name}?</DialogTitle>
-            <DialogDescription>
-              The device can no longer sign anyone in by PIN while device binding is required. To use it
-              again, bind it afresh from the device itself.
-            </DialogDescription>
+            <DialogTitle>{t("devices.revokeTitle", { name: revoking?.name ?? "" })}</DialogTitle>
+            <DialogDescription>{t("devices.revokeBody")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline">{t("common.cancel")}</Button>
             </DialogClose>
             <Button
               variant="destructive"
               disabled={revoke.isPending}
               onClick={() => revoking && revoke.mutate(revoking.id)}
             >
-              <ShieldOff /> Revoke
+              <ShieldOff /> {t("devices.revoke")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -228,23 +232,24 @@ function RenameDialog({
   onClose: () => void;
   onSave: (name: string) => void;
 }) {
+  const t = useT();
   const [name, setName] = useState(device.name);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Rename device</DialogTitle>
+          <DialogTitle>{t("devices.renameTitle")}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="device-name">Name</Label>
+          <Label htmlFor="device-name">{t("jobs.nameField")}</Label>
           <Input id="device-name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button disabled={!name.trim() || pending} onClick={() => onSave(name.trim())}>
-            Save
+            {t("common.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
