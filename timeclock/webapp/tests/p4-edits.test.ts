@@ -83,12 +83,17 @@ run("P4 edits + corrections (real Postgres)", () => {
     expect(audit.rows[0].actor_id).toBe(w.adminId);
   });
 
-  it("self-edit locks after the day-after window (423), can't move a shift into it either", async () => {
+  it("self-edit locks once a manager approves the day (423), can't move a shift into it either", async () => {
     const { rows } = await admin.query(
       `INSERT INTO time_entries (employee_id, clock_in, clock_out)
          SELECT employee_id, now() - interval '4 days', now() - interval '4 days' + interval '8 hours'
-         FROM time_entries WHERE id = $1 RETURNING id`,
+         FROM time_entries WHERE id = $1 RETURNING id, employee_id, clock_in`,
       [entryId],
+    );
+    await admin.query(
+      `INSERT INTO day_approvals (employee_id, day, approved_by)
+         VALUES ($1, ($2::timestamptz AT TIME ZONE 'Pacific/Auckland')::date, $3)`,
+      [rows[0].employee_id, rows[0].clock_in, w.adminId],
     );
     const old = await app.request(`/api/entries/${rows[0].id}`, {
       method: "PATCH",
@@ -96,7 +101,7 @@ run("P4 edits + corrections (real Postgres)", () => {
       body: JSON.stringify({ note: "late fix", reason: "too late" }),
     });
     expect(old.status).toBe(423);
-    expect((await old.json()).error).toBe("edit_window_closed");
+    expect((await old.json()).error).toBe("day_approved");
 
     const moved = await app.request(`/api/entries/${entryId}`, {
       method: "PATCH",

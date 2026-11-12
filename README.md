@@ -74,8 +74,14 @@ Clocking
 
 Audit and corrections
 - Append-only, hash-chained audit log with live chain verification
-- Self-service edits that require a reason and stay flagged forever
-- Correction requests with a manager approval queue
+- Self-service edits that require a reason and stay flagged forever: staff
+  change their own start/finish times, add or remove breaks, add extra
+  start/finish pairs, add missed days and remove entries until a manager
+  approves the day
+- Timesheet review: every staff change is listed with its reason; managers
+  acknowledge it or dispute it (a message thread with the employee), then
+  approve the day to lock it
+- Correction requests with a manager approval queue (for approved days)
 
 Localization
 - Country presets: New Zealand, USA, UK, Ireland, Canada, Australia, Germany,

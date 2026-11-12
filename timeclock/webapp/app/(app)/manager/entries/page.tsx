@@ -2,11 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil } from "lucide-react";
+import { CircleCheck, Pencil, Plus, Trash2 } from "lucide-react";
 import { apiGet } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
-import { EditEntryDialog, type EntryRow } from "@/components/entries/edit-entry-dialog";
+import { EditEntryDialog, RemoveEntryDialog, type EntryRow } from "@/components/entries/edit-entry-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +26,12 @@ export default function ManagerEntriesPage() {
   const { session, isLoading } = useSession();
   const loc = useLocale();
   const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [editing, setEditing] = useState<EntryRow | null>(null);
+  const [editing, setEditing] = useState<{ entry: EntryRow | null } | null>(null);
+  const [removing, setRemoving] = useState<EntryRow | null>(null);
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["manager-entries"] });
+    qc.invalidateQueries({ queryKey: ["review-days"] });
+  };
   const canSee = session && ["lead", "manager", "admin"].includes(session.employee.role);
 
   const { from, to } = useMemo(
@@ -88,6 +93,12 @@ export default function ManagerEntriesPage() {
         </SelectContent>
       </Select>
 
+      {employeeId && (
+        <Button className="self-start" onClick={() => setEditing({ entry: null })}>
+          <Plus /> Add time
+        </Button>
+      )}
+
       {employeeId && list.isLoading && <Skeleton className="h-40 w-full rounded-xl" />}
       {employeeId && !list.isLoading && entries.length === 0 && (
         <Card>
@@ -100,6 +111,11 @@ export default function ManagerEntriesPage() {
           <CardContent className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{loc.date(e.clockIn)}</span>
+              {e.dayApproved && (
+                <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
+                  <CircleCheck className="size-3" /> Day approved
+                </Badge>
+              )}
               {e.edited && <Badge className="border-transparent bg-amber-500/15 text-amber-300">Edited</Badge>}
               {e.paidAt && <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Paid</Badge>}
               {e.fraudFlags.map((f) => (
@@ -113,21 +129,39 @@ export default function ManagerEntriesPage() {
               {loc.time(e.clockIn)} → {e.clockOut ? loc.time(e.clockOut) : "still clocked in"}
               {e.breaks.length > 0 && ` · ${e.breaks.length} break${e.breaks.length > 1 ? "s" : ""}`}
             </div>
-            <Button variant="secondary" size="sm" className="self-start" onClick={() => setEditing(e)}>
-              <Pencil /> Edit
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setEditing({ entry: e })}>
+                <Pencil /> Edit
+              </Button>
+              {!e.paidAt && (
+                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setRemoving(e)}>
+                  <Trash2 /> Remove
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       ))}
 
       {editing && (
         <EditEntryDialog
-          entry={editing}
+          entry={editing.entry}
           mode="manager"
+          employeeId={employeeId ?? undefined}
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
-            qc.invalidateQueries({ queryKey: ["manager-entries"] });
+            refresh();
+          }}
+        />
+      )}
+      {removing && (
+        <RemoveEntryDialog
+          entry={removing}
+          onClose={() => setRemoving(null)}
+          onDone={() => {
+            setRemoving(null);
+            refresh();
           }}
         />
       )}

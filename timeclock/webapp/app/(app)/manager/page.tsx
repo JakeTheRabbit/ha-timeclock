@@ -7,6 +7,7 @@ import {
   CalendarRange,
   ChartColumn,
   Check,
+  ClipboardCheck,
   ChevronRight,
   Pencil,
   ScrollText,
@@ -120,6 +121,16 @@ export default function ManagerPage() {
     enabled: !!canSee,
   });
 
+  const review = useQuery({
+    queryKey: ["review-open-count"],
+    queryFn: () =>
+      apiGet<{ modifications: { id: string; status: string }[] }>("/review/modifications?status=open&limit=500"),
+    enabled: !!canSee,
+    refetchInterval: 60_000,
+  });
+  const reviewPending = review.data?.modifications.filter((m) => m.status === "pending").length ?? 0;
+  const reviewDisputed = review.data?.modifications.filter((m) => m.status === "disputed").length ?? 0;
+
   const decideCorrection = useMutation({
     mutationFn: ({ id, action }: { id: string; action: "approve" | "reject" }) =>
       apiPost(`/corrections/${id}/${action}`, {}),
@@ -195,6 +206,32 @@ export default function ManagerPage() {
           {board.data?.clockedIn.map((e) => (
             <LiveRow key={e.entryId} e={e} />
           ))}
+        </CardContent>
+      </Card>
+
+      {/* Staff self-edits to acknowledge / dispute + day approval */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Staff changes to check</CardTitle>
+          <CardDescription>Times staff changed themselves, with their reason</CardDescription>
+          <CardAction>
+            <Badge variant={reviewPending + reviewDisputed > 0 ? "default" : "secondary"}>{reviewPending}</Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {review.isLoading && <Skeleton className="h-11 w-full" />}
+          {review.data && (
+            <p className="text-sm text-muted-foreground">
+              {reviewPending === 0 && reviewDisputed === 0
+                ? "Nothing to check."
+                : `${reviewPending} to acknowledge${reviewDisputed ? ` · ${reviewDisputed} in dispute` : ""}`}
+            </p>
+          )}
+          <Button asChild className="self-start">
+            <Link href="/manager/review">
+              <ClipboardCheck /> Review &amp; approve days
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
@@ -320,6 +357,15 @@ export default function ManagerPage() {
           >
             <ChartColumn className="size-5 text-muted-foreground" />
             <span className="flex-1 text-sm font-medium">Dashboard &amp; calendar</span>
+            <ChevronRight className="size-5 text-muted-foreground" />
+          </Link>
+          <Separator />
+          <Link
+            href="/manager/review"
+            className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
+          >
+            <ClipboardCheck className="size-5 text-muted-foreground" />
+            <span className="flex-1 text-sm font-medium">Timesheet review</span>
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
           <Separator />

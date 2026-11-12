@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.10.0 — staff day editing & timesheet review
+
+Staff now have full control of their own days until a manager approves them.
+
+- **Edit any unapproved day** (the old "day of + day after" window is gone).
+  On **My hours**, staff can change start/finish times, **add or remove
+  breaks** (including auto-deducted ones), **add extra start/finish pairs** on
+  a day they left site and came back, **add a missed day** they never clocked
+  in for, and **remove** an entry. Every change needs a reason.
+- **Approved days lock.** Once a manager approves a day, staff can't change it
+  (they can still send a correction request). Managers can still edit it.
+  Manager/admin can **Reopen** an approved day with a reason.
+- **Timesheet review** (Manager → Timesheet review): every staff change is
+  listed with before ⇒ after and the employee's reason. **Acknowledge** = read
+  it (not an approval); **Acknowledge all** for bulk. **Dispute** opens a
+  message thread with the employee (HA push to the employee's notify service
+  if set); **Resolve** closes it. Approve days one at a time or all ready days
+  at once — days with an open shift or open dispute can't be approved.
+- Managers can now **add and remove entries and breaks** for anyone on
+  **Edit entries**.
+- Shifts of one person may no longer overlap; breaks may not overlap.
+- New migration `0013_day_review.sql`: `day_approvals`, `modifications`,
+  `modification_messages`; correction rows follow a removed entry.
+- API: `POST /api/entries`, `DELETE /api/entries/:id`,
+  `DELETE /api/entries/:id/breaks/:breakId` (reason in body), and
+  `/api/review/*` (mine, modifications, acknowledge, dispute, resolve,
+  messages, days, days/approve, days/unapprove).
+- Everything stays in the hash-chained audit log, including removals (full
+  before-state kept).
+
 ## 0.9.0 — manager dashboard & calendar
 
 New **Manager → Dashboard & calendar** (lead+; pay figures manager+ only):

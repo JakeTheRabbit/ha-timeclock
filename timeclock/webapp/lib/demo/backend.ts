@@ -14,8 +14,7 @@
  * Response shapes mirror the real Hono routes exactly (see server/routes/*).
  */
 
-import { isSelfEditable } from "@/server/domain/time/edit-window";
-import { tzOffset } from "@/lib/tz";
+import { tzOffset, APP_TZ } from "@/lib/tz";
 
 type Json = Record<string, unknown>;
 
@@ -110,6 +109,23 @@ interface DemoState {
   sessionEmployeeId: string; // who is "signed in" (demo auto-signs-in the admin)
   settings: Json;
   auditSeq: number;
+  approvals: { employeeId: string; day: string; by: string; at: string }[];
+  mods: DemoMod[];
+}
+
+interface DemoMod {
+  id: string;
+  employeeId: string;
+  day: string;
+  timeEntryId: string | null;
+  kind: string;
+  before: Json | null;
+  after: Json | null;
+  reason: string;
+  status: "pending" | "acknowledged" | "disputed" | "resolved";
+  createdAt: string;
+  acknowledgedBy: string | null;
+  messages: { id: string; authorId: string; authorName: string; body: string; createdAt: string }[];
 }
 
 let state: DemoState;
@@ -332,6 +348,8 @@ function seed(): DemoState {
     audit,
     sessionEmployeeId: employees[0].id, // demo signs you in as the admin
     auditSeq: 1,
+    approvals: [],
+    mods: [],
     settings: {
       locale: { country: "NZ", language: "en", bcp47: "en-NZ", currency: "NZD", weekStart: 1, holidayRegion: "", holidayPayMultiplier: 1 },
       overtime: { dailyThresholdMin: 480, weeklyThresholdMin: 2400, multiplier1: 1.5, multiplier2: 2, daily2ThresholdMin: null },
@@ -374,6 +392,60 @@ function openBreak(entryId: string): DemoBreak | undefined {
 function entryBreaks(entryId: string): DemoBreak[] {
   return state.breaks.filter((b) => b.timeEntryId === entryId);
 }
+/** Facility-local YYYY-MM-DD of an instant. */
+function facDay(isoStr: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(isoStr));
+}
+function isApproved(empId: string, day: string): boolean {
+  return state.approvals.some((a) => a.employeeId === empId && a.day === day);
+}
+function entryJson(e: DemoEntry) {
+  const day = facDay(e.clockIn);
+  const approved = isApproved(e.employeeId, day);
+  return {
+    id: e.id,
+    day,
+    dayApproved: approved,
+    clockIn: e.clockIn,
+    clockOut: e.clockOut,
+    edited: e.edited,
+    note: e.note,
+    job: e.jobId ? { id: e.jobId, name: jobName(e.jobId)! } : null,
+    workedMinutes: e.clockOut ? workedMin(e) : null,
+    selfEditable: !approved,
+    fraudFlags: [],
+    paidAt: null,
+    breaks: entryBreaks(e.id).map((b) => ({ id: b.id, startAt: b.startAt, endAt: b.endAt, paid: b.paid, autoDeducted: b.autoDeducted })),
+  };
+}
+/** Staff self-edit -> review list (the signed-in demo user is an admin, so log every edit). */
+function logMod(e: DemoEntry, kind: string, before: Json | null, after: Json | null, reason: string) {
+  state.mods.unshift({
+    id: uuid(idc++ + 5000),
+    employeeId: e.employeeId,
+    day: facDay(e.clockIn),
+    timeEntryId: e.id,
+    kind,
+    before,
+    after,
+    reason,
+    status: "pending",
+    createdAt: iso(new Date()),
+    acknowledgedBy: null,
+    messages: [],
+  });
+}
+function modJson(m: DemoMod) {
+  return {
+    ...m,
+    employeeName: empName(m.employeeId),
+    acknowledgedByName: m.acknowledgedBy ? empName(m.acknowledgedBy) : null,
+    acknowledgedAt: null,
+    disputedByName: null,
+    resolvedByName: null,
+  };
+}
+
 function unpaidBreakMin(entryId: string, until: Date): number {
   return entryBreaks(entryId)
     .filter((b) => !b.paid)
@@ -524,38 +596,157 @@ function handle(req: Req): { status: number; body: Json } {
     return ok({ ok: true, entryId: newE.id });
   }
 
-  // ---- entries (my-hours) ------------------------------------------------
-  if (seg === "/entries/mine") {
+  // ---- entries (my-hours / manager edit) ---------------------------------
+  if (seg === "/entries/mine" || seg === "/manager/entries") {
+    const who = seg === "/manager/entries" ? (req.query.get("employeeId") ?? me().id) : me().id;
     const from = new Date(req.query.get("from") ?? daysAgo(14).toISOString());
     const to = new Date(req.query.get("to") ?? new Date().toISOString());
     const rows = state.entries
-      .filter((e) => e.employeeId === me().id && new Date(e.clockIn) >= from && new Date(e.clockIn) <= to)
+      .filter((e) => e.employeeId === who && new Date(e.clockIn) >= from && new Date(e.clockIn) <= to)
       .sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime())
-      .map((e) => ({
-        id: e.id,
-        clockIn: e.clockIn,
-        clockOut: e.clockOut,
-        edited: e.edited,
-        note: e.note,
-        job: e.jobId ? { id: e.jobId, name: jobName(e.jobId)! } : null,
-        workedMinutes: e.clockOut ? workedMin(e) : null,
-        selfEditable: isSelfEditable(new Date(e.clockIn)),
-        fraudFlags: [],
-        paidAt: null,
-        breaks: entryBreaks(e.id).map((b) => ({ id: b.id, startAt: b.startAt, endAt: b.endAt, paid: b.paid, autoDeducted: b.autoDeducted })),
-      }));
+      .map(entryJson);
     return ok({ entries: rows });
   }
-  if (seg.startsWith("/entries/") && method === "PATCH") {
-    const id = seg.split("/")[2];
-    const e = state.entries.find((x) => x.id === id);
-    if (!e) return ok({ error: "not_found" }, 404);
-    const old = { clockIn: e.clockIn, clockOut: e.clockOut };
-    if (req.body?.clockIn) e.clockIn = String(req.body.clockIn);
-    if (req.body?.clockOut) e.clockOut = String(req.body.clockOut);
-    e.edited = true;
-    e.note = (req.body?.reason as string) ?? e.note;
-    pushAudit({ entityType: "time_entry", entityId: e.id, action: "self_edit", actorId: me().id, reason: (req.body?.reason as string) ?? null, oldValue: JSON.stringify(old), newValue: JSON.stringify({ clockIn: e.clockIn, clockOut: e.clockOut }) });
+  if (seg === "/manager/employees") {
+    return ok({ employees: state.employees.map((e) => ({ id: e.id, displayName: e.displayName, active: e.active })) });
+  }
+  if (seg === "/entries" && method === "POST") {
+    const e: DemoEntry = {
+      id: uuid(idc++ + 7000),
+      employeeId: String(req.body?.employeeId ?? me().id),
+      clockIn: String(req.body?.clockIn),
+      clockOut: (req.body?.clockOut as string | null) ?? null,
+      jobId: null,
+      edited: true,
+      note: null,
+    };
+    state.entries.push(e);
+    logMod(e, "entry_add", null, { clockIn: e.clockIn, clockOut: e.clockOut }, String(req.body?.reason ?? ""));
+    return ok({ ok: true, entryId: e.id }, 201);
+  }
+  {
+    const m = seg.match(/^\/entries\/([^/]+)(?:\/breaks(?:\/([^/]+))?)?$/);
+    if (m && method !== "GET") {
+      const e = state.entries.find((x) => x.id === m[1]);
+      if (!e) return ok({ error: "not_found" }, 404);
+      const reason = String(req.body?.reason ?? "");
+      const isBreaks = seg.includes("/breaks");
+      if (!isBreaks && method === "PATCH") {
+        const old = { clockIn: e.clockIn, clockOut: e.clockOut };
+        if (req.body?.clockIn) e.clockIn = String(req.body.clockIn);
+        if (req.body && "clockOut" in req.body) e.clockOut = (req.body.clockOut as string | null) ?? null;
+        e.edited = true;
+        pushAudit({ entityType: "time_entry", entityId: e.id, action: "self_edit", actorId: me().id, reason, oldValue: JSON.stringify(old), newValue: JSON.stringify({ clockIn: e.clockIn, clockOut: e.clockOut }) });
+        logMod(e, "entry_edit", old, { clockIn: e.clockIn, clockOut: e.clockOut }, reason);
+        return ok({ ok: true });
+      }
+      if (!isBreaks && method === "DELETE") {
+        logMod(e, "entry_remove", { clockIn: e.clockIn, clockOut: e.clockOut }, null, reason);
+        state.entries = state.entries.filter((x) => x.id !== e.id);
+        state.breaks = state.breaks.filter((b) => b.timeEntryId !== e.id);
+        return ok({ ok: true });
+      }
+      if (isBreaks && method === "POST") {
+        const b: DemoBreak = { id: uuid(idc++ + 8000), timeEntryId: e.id, startAt: String(req.body?.startAt), endAt: (req.body?.endAt as string | null) ?? null, paid: !!req.body?.paid, autoDeducted: false };
+        state.breaks.push(b);
+        e.edited = true;
+        logMod(e, "break_add", null, { startAt: b.startAt, endAt: b.endAt, paid: b.paid }, reason);
+        return ok({ ok: true, breakId: b.id }, 201);
+      }
+      const b = state.breaks.find((x) => x.id === m[2] && x.timeEntryId === e.id);
+      if (!b) return ok({ error: "not_found" }, 404);
+      const old = { startAt: b.startAt, endAt: b.endAt, paid: b.paid };
+      if (method === "PATCH") {
+        if (req.body?.startAt) b.startAt = String(req.body.startAt);
+        if (req.body && "endAt" in req.body) b.endAt = (req.body.endAt as string | null) ?? null;
+        if (typeof req.body?.paid === "boolean") b.paid = req.body.paid;
+        e.edited = true;
+        logMod(e, "break_edit", old, { startAt: b.startAt, endAt: b.endAt, paid: b.paid }, reason);
+        return ok({ ok: true });
+      }
+      if (method === "DELETE") {
+        state.breaks = state.breaks.filter((x) => x.id !== b.id);
+        e.edited = true;
+        logMod(e, "break_remove", old, null, reason);
+        return ok({ ok: true });
+      }
+    }
+  }
+
+  // ---- day review ----------------------------------------------------------
+  if (seg === "/review/mine") {
+    const from = req.query.get("from") ?? "0000";
+    const to = req.query.get("to") ?? "9999";
+    return ok({
+      approvedDays: state.approvals.filter((a) => a.employeeId === me().id && a.day >= from && a.day <= to).map((a) => a.day),
+      modifications: state.mods.filter((m) => m.employeeId === me().id && m.day >= from && m.day <= to).map(modJson),
+    });
+  }
+  if (seg === "/review/mine/disputes") {
+    return ok({ modifications: state.mods.filter((m) => m.employeeId === me().id && m.status === "disputed").map(modJson) });
+  }
+  if (seg === "/review/modifications" && method === "GET") {
+    const st = req.query.get("status") ?? "open";
+    const rows = state.mods.filter((m) => (st === "all" ? true : st === "open" ? m.status === "pending" || m.status === "disputed" : m.status === st));
+    return ok({ modifications: rows.map(modJson) });
+  }
+  if (seg === "/review/modifications/acknowledge" && method === "POST") {
+    const ids = (req.body?.ids as string[]) ?? [];
+    let n = 0;
+    for (const m of state.mods) if (ids.includes(m.id) && m.status === "pending") { m.status = "acknowledged"; m.acknowledgedBy = me().id; n++; }
+    return ok({ ok: true, acknowledged: n });
+  }
+  {
+    const m = seg.match(/^\/review\/modifications\/([^/]+)\/(acknowledge|dispute|resolve|messages)$/);
+    if (m && method === "POST") {
+      const mod = state.mods.find((x) => x.id === m[1]);
+      if (!mod) return ok({ error: "not_found" }, 404);
+      const text = String(req.body?.message ?? req.body?.body ?? req.body?.note ?? "");
+      const say = () => text && mod.messages.push({ id: uuid(idc++ + 9000), authorId: me().id, authorName: me().displayName, body: text, createdAt: iso(new Date()) });
+      if (m[2] === "acknowledge") { mod.status = "acknowledged"; mod.acknowledgedBy = me().id; }
+      if (m[2] === "dispute") { mod.status = "disputed"; say(); }
+      if (m[2] === "resolve") { mod.status = "resolved"; say(); }
+      if (m[2] === "messages") { say(); return ok({ ok: true }, 201); }
+      return ok({ ok: true });
+    }
+  }
+  if (seg === "/review/days") {
+    const emp = req.query.get("employeeId") ?? me().id;
+    const from = req.query.get("from") ?? "0000";
+    const to = req.query.get("to") ?? "9999";
+    const byDay = new Map<string, ReturnType<typeof entryJson>[]>();
+    for (const e of state.entries.filter((x) => x.employeeId === emp)) {
+      const j = entryJson(e);
+      if (j.day < from || j.day > to) continue;
+      byDay.set(j.day, [...(byDay.get(j.day) ?? []), j]);
+    }
+    const days = [...byDay.entries()].map(([day, es]) => {
+      const a = state.approvals.find((x) => x.employeeId === emp && x.day === day);
+      const ms = state.mods.filter((x) => x.employeeId === emp && x.day === day);
+      return {
+        day,
+        entries: es.sort((x, y) => (x.clockIn < y.clockIn ? -1 : 1)),
+        workedMinutes: es.reduce((t, x) => t + (x.workedMinutes ?? 0), 0),
+        hasOpen: es.some((x) => !x.clockOut),
+        approved: a ? { at: a.at, by: empName(a.by) } : null,
+        pendingMods: ms.filter((x) => x.status === "pending").length,
+        disputedMods: ms.filter((x) => x.status === "disputed").length,
+      };
+    });
+    return ok({ days: days.sort((x, y) => (x.day < y.day ? 1 : -1)) });
+  }
+  if (seg === "/review/days/approve" && method === "POST") {
+    const emp = String(req.body?.employeeId);
+    const approved: string[] = [];
+    for (const day of (req.body?.days as string[]) ?? []) {
+      if (isApproved(emp, day)) continue;
+      state.approvals.push({ employeeId: emp, day, by: me().id, at: iso(new Date()) });
+      approved.push(day);
+    }
+    return ok({ ok: true, approved, skipped: [] });
+  }
+  if (seg === "/review/days/unapprove" && method === "POST") {
+    state.approvals = state.approvals.filter((a) => !(a.employeeId === req.body?.employeeId && a.day === req.body?.day));
     return ok({ ok: true });
   }
 

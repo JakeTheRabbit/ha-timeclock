@@ -169,6 +169,21 @@ Manager in the sidebar (lead and above).
 - **Who is in.** Live board of current status.
 - **Approvals.** Correction requests and leave requests, with approve and decline
   buttons. Every action gives you a confirmation.
+- **Timesheet review.** Staff can change all of their own days (times, breaks,
+  extra start/finish pairs, missed days, removals) until a manager approves the
+  day. Each change shows here with the reason from the employee.
+  - Push **Acknowledge** to show that you read the change. You do not approve
+    it. Push **Acknowledge all** to do all of the pending changes.
+  - Push **Dispute** if you do not agree. Write a message. The employee gets the
+    message (and an HA push if a notify service is set on the employee). Reply
+    in the same thread. Push **Resolve** when the problem is closed. Fix the
+    times yourself in **Edit entries** if necessary.
+  - Under **Approve days**, select an employee and push **Approve** on a day.
+    An approved day is locked for the employee. You can still edit it. You
+    cannot approve a day that has an open shift or an open dispute.
+  - A manager or admin can push **Reopen** on an approved day. A reason is
+    mandatory and is audited.
+- **Edit entries.** Add, change and remove entries and breaks for all staff.
 - **Pay periods.** Pick a period, review the timesheet, then sign off and lock
   it. A locked period is immutable. An admin can unlock, but that requires a
   reason and is audited.

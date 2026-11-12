@@ -79,7 +79,8 @@ the tax.
   break-compliance flags.
 - **Rostering**: shifts, scheduled-vs-actual, late / no-show board.
 - **Leave**: requests + approvals, ledger balances, 4/52 annual accrual.
-- **Manager**: live who's-in board, correction/leave approval queues,
+- **Manager**: live who's-in board, timesheet review (acknowledge/dispute
+  staff changes, approve days), correction/leave approval queues,
   pay-period sign-off + LOCK (immutable), audit viewer.
 - **Reports**: timesheet CSV + PDF, payroll export — generic CSV working now;
   Xero / iPayroll adapters stubbed for later API push.

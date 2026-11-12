@@ -39,16 +39,42 @@ clocking out. It closes the current entry and opens a new one on the new job.
 
 ## Your hours
 
-My hours shows your entries: the day, when you clocked in and out, and the worked
-total. Anything that was edited is marked.
+My hours shows your hours one day at a time. Each day shows each start and
+finish, the breaks, and the worked total. A day has one of these labels:
 
-## Fixing a time you got wrong
+- **You can edit** — you can change this day.
+- **Approved** — your manager approved this day. You cannot change it.
 
-If you forgot to clock out, or clocked the wrong time, you can request a
-correction. Open the entry, put in the right time and a short reason, and send
-it. A manager approves it. Your original punch stays on the record and the change
-is logged with your reason. Nothing is deleted, so do not worry about "messing up
-the history". Just say what happened.
+Anything that was edited is marked.
+
+## Fixing your times
+
+You can change all of your days until your manager approves them. You do not
+need approval to make a change.
+
+1. Open **My hours**.
+2. Select the range (Today, Week, Fortnight or Month).
+3. Do one of these steps:
+   - To change a start or finish time, push **Fix times** on the entry.
+   - To add or remove a break, push **Fix times**, then push **Add break** or
+     **Remove break**.
+   - If you left site and came back, push **Add start/finish** on that day. Each
+     start and finish is a separate entry.
+   - If you forgot to clock in for all of a day, push **Add missed time**. Set
+     the date and times.
+   - To remove an entry, push the bin icon on the entry.
+4. Write a reason. A reason is mandatory.
+5. Push **Save**.
+
+Your manager sees each change and your reason. If your manager does not agree,
+you see **Your manager has a question** at the top of My hours. Read the
+message, write an answer and push **Send**.
+
+When your manager approves a day, you cannot change it again. If an approved day
+is wrong, open the entry and send a correction. Your manager must approve it.
+
+All changes are recorded in the audit log with your reason. Do not worry about
+"messing up the history". Just say what happened.
 
 ## Leave
 

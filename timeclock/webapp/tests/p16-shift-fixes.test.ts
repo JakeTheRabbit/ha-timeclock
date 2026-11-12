@@ -48,7 +48,8 @@ run("P16 shift fixes: double-tap, open-shift + break edits, manager edit, door f
     expect(again.status).toBe(409);
     expect((await again.json()).error).toBe("just_clocked_out");
     // Cooldown elapsed -> allowed again.
-    await admin.query("UPDATE time_entries SET clock_out = now() - interval '2 minutes'");
+    // (Shift the whole first shift back so later start-time fixes don't overlap it.)
+    await admin.query("UPDATE time_entries SET clock_in = now() - interval '3 hours', clock_out = now() - interval '2 hours'");
     swipeMinAgo = 30;
     const ok = await post("/api/clock/in", w.employeeCookie);
     expect(ok.status).toBe(201);
@@ -126,11 +127,16 @@ run("P16 shift fixes: double-tap, open-shift + break edits, manager edit, door f
     expect(res.status).toBe(201);
     expect((await res.json()).fraudFlags).toEqual(["no_door_access"]);
 
-    // An entry well past the staff window: staff locked out, manager can edit.
+    // An entry on a manager-approved day: staff locked out, manager can edit.
     const { rows } = await admin.query(
       `INSERT INTO time_entries (employee_id, clock_in, clock_out)
-         VALUES ($1, now() - interval '6 days', now() - interval '6 days' + interval '4 hours') RETURNING id`,
+         VALUES ($1, now() - interval '6 days', now() - interval '6 days' + interval '4 hours') RETURNING id, clock_in`,
       [w.employeeId],
+    );
+    await admin.query(
+      `INSERT INTO day_approvals (employee_id, day, approved_by)
+         VALUES ($1, ($2::timestamptz AT TIME ZONE 'Pacific/Auckland')::date, $3)`,
+      [w.employeeId, rows[0].clock_in, w.adminId],
     );
     const body = { clockOut: new Date(Date.now() - 6 * 86400_000 + 5 * 3600_000).toISOString(), reason: "camera check" };
     expect((await patch(`/api/entries/${rows[0].id}`, w.employeeCookie, body)).status).toBe(423);
