@@ -19,6 +19,7 @@ import { todayWork } from "@/lib/clock-context";
 import type { Roster } from "@/db/schema";
 import { compareShift } from "@/server/domain/roster/compare";
 import { nzPublicHolidays } from "@/server/domain/holidays/nz-public-holidays";
+import { settingsIssues } from "@/server/domain/settings-schema";
 
 type Json = Record<string, unknown>;
 
@@ -1219,7 +1220,10 @@ function handle(req: Req): { status: number; body: Json } {
   if (seg === "/admin/devices/bind" && method === "POST") return ok({ device: { id: uuid(9999), name: String(req.body?.name ?? "Kiosk") } }, 201);
   if (seg === "/admin/settings" && method === "GET") return ok({ settings: state.settings });
   if (seg === "/admin/settings" && method === "PATCH") {
-    state.settings = deepMerge(state.settings, req.body ?? {}) as Json;
+    const next = deepMerge(state.settings, req.body ?? {}) as Json;
+    const issues = settingsIssues(next);
+    if (issues.length) return ok({ error: "invalid_settings", issues } as unknown as Json, 400);
+    state.settings = next;
     pushAudit({ entityType: "settings", entityId: "1", action: "update", actorId: me().id, reason: null, oldValue: null, newValue: null });
     return ok({ settings: state.settings });
   }

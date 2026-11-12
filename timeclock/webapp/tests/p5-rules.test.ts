@@ -214,6 +214,9 @@ run("P5 settings API (real Postgres)", () => {
       body: JSON.stringify({ rounding: { incrementMin: 7 } }),
     });
     expect(bad.status).toBe(400);
+    const badBody = await bad.json();
+    expect(badBody.error).toBe("invalid_settings");
+    expect(badBody.issues[0].path).toBe("rounding.incrementMin");
 
     const audit = await admin.query("SELECT count(*)::int n FROM audit_log WHERE entity_type='settings'");
     expect(audit.rows[0].n).toBe(1);
