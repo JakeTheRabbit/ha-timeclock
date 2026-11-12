@@ -34,14 +34,17 @@ export function pinRateCheck(key: string, now = Date.now()): { allowed: boolean;
   return { allowed: true, retryInMs: 0 };
 }
 
-export function pinRateFail(key: string, now = Date.now()): void {
+/** Records a failure; returns tries left before lockout (0 = now locked). */
+export function pinRateFail(key: string, now = Date.now()): number {
   const f = fails.get(key) ?? { count: 0, lockedUntil: 0 };
   f.count += 1;
+  const left = MAX_FAILS - f.count;
   if (f.count >= MAX_FAILS) {
     f.lockedUntil = now + WINDOW_MS;
     f.count = 0;
   }
   fails.set(key, f);
+  return left;
 }
 
 export function pinRateReset(key: string): void {

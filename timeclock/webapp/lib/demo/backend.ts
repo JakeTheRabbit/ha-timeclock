@@ -499,6 +499,7 @@ function sessionResponse(): Json {
     session: {
       id: "demo-session",
       expiresAt: iso(new Date(Date.now() + 86400_000)),
+      kiosk: false, // the demo is never a bound kiosk device
       employee: { id: m.id, displayName: m.displayName, role: m.role },
     },
   };
@@ -550,7 +551,7 @@ function handle(req: Req): { status: number; body: Json } {
     return ok({
       employees: state.employees
         .filter((e) => e.active)
-        .map((e) => ({ id: e.id, displayName: e.displayName, hasPin: e.pin != null })),
+        .map((e) => ({ id: e.id, displayName: e.displayName, hasPin: e.pin != null, clockedIn: !!openEntry(e.id) })),
     });
   }
   if (seg === "/auth/pin-login" && method === "POST") {
@@ -598,6 +599,8 @@ function handle(req: Req): { status: number; body: Json } {
   if (seg === "/clock/jobs") {
     return ok({ jobs: state.jobs.filter((j) => j.active).map((j) => ({ id: j.id, name: j.name, code: j.code })) });
   }
+  if ((seg === "/clock/in" || seg === "/clock/out") && method === "POST" && req.body?.queuedFor && req.body.queuedFor !== me().id)
+    return ok({ error: "queued_for_other" }, 409);
   if (seg === "/clock/in" && method === "POST") {
     if (openEntry(me().id)) return ok({ error: "already_clocked_in" }, 409);
     const jobId = (req.body?.jobId as string | null) ?? null;

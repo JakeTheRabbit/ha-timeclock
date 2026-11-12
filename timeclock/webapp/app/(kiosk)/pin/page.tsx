@@ -1,24 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Clock, House, KeyRound, LogOut, ShieldCheck, Timer } from "lucide-react";
+import { ChevronLeft, Clock, House, KeyRound, LogOut, Search, ShieldCheck, Timer } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
 import { PinPad } from "@/components/kiosk/PinPad";
 import { useSession, type SessionEmployee } from "@/hooks/use-session";
+import { loadRecent, orderStaff, rememberSignIn } from "@/lib/kiosk-staff";
 import { useT } from "@/lib/i18n";
 
 interface KioskEmployees {
-  employees: { id: string; displayName: string; hasPin: boolean }[];
+  employees: { id: string; displayName: string; hasPin: boolean; clockedIn?: boolean }[];
 }
 interface Whoami {
   ha: { haUserId: string; displayName: string | null } | null;
@@ -31,11 +33,21 @@ export default function PinPage() {
   const { session } = useSession();
   const t = useT();
   const [selected, setSelected] = useState<{ id: string; displayName: string } | null>(null);
+  const [pinError, setPinError] = useState("");
+  const [query, setQuery] = useState("");
+  const [recent, setRecent] = useState<string[]>([]);
+  useEffect(() => setRecent(loadRecent()), []); // localStorage: client only
+  const pick = (e: { id: string; displayName: string } | null) => {
+    setSelected(e);
+    setPinError("");
+  };
 
   const staff = useQuery({
     queryKey: ["kiosk-employees"],
     queryFn: () => apiGet<KioskEmployees>("/auth/kiosk-employees"),
   });
+  // Search filter, then who last signed in on this device first.
+  const shown = orderStaff(staff.data?.employees ?? [], recent, query);
   const whoami = useQuery({
     queryKey: ["whoami"],
     queryFn: () => apiGet<Whoami>("/auth/whoami"),
@@ -61,21 +73,29 @@ export default function PinPage() {
       apiPost<{ ok: boolean; employee: SessionEmployee }>("/auth/pin-login", vars),
     onSuccess: (data) => {
       toast.success(t("toast.signedInAs", { name: data.employee.displayName }));
-      setSelected(null);
+      rememberSignIn(data.employee.id);
+      setQuery("");
+      pick(null);
       qc.invalidateQueries({ queryKey: ["session"] });
       // Straight to the clock — that's why they signed in.
       router.push("/clock");
     },
     onError: (e) => {
       if (e instanceof ApiError) {
-        const code = (e.body as { error?: string } | null)?.error;
-        toast.error(
+        const body = e.body as { error?: string; attemptsLeft?: number } | null;
+        const code = body?.error;
+        const left = body?.attemptsLeft;
+        const msg =
           code === "rate_limited"
             ? t("toast.rateLimited")
             : code === "device_not_bound"
               ? t("toast.deviceNotBound")
-              : t("toast.wrongPin"),
-        );
+              : typeof left !== "number"
+                ? t("toast.wrongPin")
+                : left > 0
+                  ? t("pin.wrongPinLeft", { n: left })
+                  : t("pin.wrongPinLocked");
+        setPinError(msg); // inline under the pad, where the person is looking
       } else toast.error(t("toast.loginFailed"));
     },
   });
@@ -136,9 +156,17 @@ export default function PinPage() {
             </p>
             <PinPad
               disabled={login.isPending}
-              onSubmit={(pin) => login.mutate({ employeeId: selected.id, pin })}
+              onSubmit={(pin) => {
+                setPinError("");
+                login.mutate({ employeeId: selected.id, pin });
+              }}
             />
-            <Button variant="ghost" onClick={() => setSelected(null)}>
+            {pinError && (
+              <p role="alert" className="text-center text-sm font-medium text-destructive">
+                {pinError}
+              </p>
+            )}
+            <Button variant="ghost" onClick={() => pick(null)}>
               <ChevronLeft aria-hidden="true" /> {t("pin.backToStaffList")}
             </Button>
           </CardContent>
@@ -153,16 +181,39 @@ export default function PinPage() {
               <Skeleton className="h-16 rounded-xl" />
             </div>
           ) : (
+            <>
+            {(staff.data?.employees.length ?? 0) > 0 && (
+              <div className="relative w-full">
+                <Search
+                  className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={(ev) => setQuery(ev.target.value)}
+                  placeholder={t("pin.search")}
+                  aria-label={t("pin.search")}
+                  autoComplete="off"
+                  className="h-12 pl-9 text-base"
+                />
+              </div>
+            )}
+            {query.trim() !== "" && shown.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground">{t("pin.noMatch", { q: query.trim() })}</p>
+            )}
             <div className="grid w-full grid-cols-2 gap-3">
-              {staff.data?.employees.map((e) =>
+              {shown.map((e) =>
                 e.hasPin ? (
                   <Button
                     key={e.id}
                     variant="secondary"
-                    onClick={() => setSelected(e)}
+                    onClick={() => pick(e)}
                     className="h-auto min-h-16 flex-col gap-2 whitespace-normal rounded-xl px-4 py-4 text-lg font-medium"
                   >
-                    <Avatar employeeId={e.id} name={e.displayName} size="md" />
+                    <InDot on={e.clockedIn} label={t("clock.clockedIn")}>
+                      <Avatar employeeId={e.id} name={e.displayName} size="md" />
+                    </InDot>
                     {e.displayName}
                   </Button>
                 ) : (
@@ -172,7 +223,9 @@ export default function PinPage() {
                     title={t("pin.noPinSetTooltip")}
                     className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-card px-4 py-3 text-lg font-medium text-muted-foreground opacity-60"
                   >
-                    <Avatar employeeId={e.id} name={e.displayName} size="md" className="opacity-80" />
+                    <InDot on={e.clockedIn} label={t("clock.clockedIn")}>
+                      <Avatar employeeId={e.id} name={e.displayName} size="md" className="opacity-80" />
+                    </InDot>
                     {e.displayName}
                     <Badge variant="outline" className="font-normal">
                       {t("pin.noPinSet")}
@@ -181,6 +234,7 @@ export default function PinPage() {
                 ),
               )}
             </div>
+            </>
           )}
           {staff.data?.employees.length === 0 && (
             <p className="text-center text-sm text-muted-foreground">
@@ -214,5 +268,22 @@ export default function PinPage() {
         </Link>
       </Button>
     </main>
+  );
+}
+
+/** Small green "in" dot on the avatar for people currently clocked in. */
+function InDot({ on, label, children }: { on?: boolean; label: string; children: React.ReactNode }) {
+  return (
+    <span className="relative inline-flex">
+      {children}
+      {on && (
+        <span
+          role="img"
+          aria-label={label}
+          title={label}
+          className="absolute right-0 bottom-0 size-3.5 rounded-full bg-emerald-500 ring-2 ring-background"
+        />
+      )}
+    </span>
   );
 }

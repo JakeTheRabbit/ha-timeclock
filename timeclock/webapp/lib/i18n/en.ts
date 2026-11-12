@@ -438,6 +438,12 @@ const en = {
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====
+  "pinPad.backspace": "Delete last digit (hold to clear)",
+  "pin.wrongPinLeft": "Wrong PIN — {n} tries left",
+  "pin.wrongPinLocked": "Wrong PIN — too many tries, wait a minute",
+  "pin.search": "Find your name",
+  "pin.noMatch": "No one matches “{q}”",
+  "kiosk.signingOut": "Signing out in {n}s — tap to stay",
 
 
   // ==== batch3:INSIGHTS_AUDIT — add this area's keys directly below ====
