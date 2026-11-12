@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Ban, Gift } from "lucide-react";
@@ -63,6 +63,11 @@ export default function PayPage() {
   const money = (cents: number | null) => (cents == null ? "—" : loc.money(cents / 100));
   const short = (d: Date | string) => loc.date(d, { day: "numeric", month: "short" });
   const [pickedEmployee, setEmployeeId] = useState<string | null>(null);
+  // Deep link from Admin → Employees: ?employeeId=…
+  useEffect(() => {
+    const emp = new URLSearchParams(window.location.search).get("employeeId");
+    if (emp) setEmployeeId(emp);
+  }, []);
   const [pickedRange, setDays] = useState<Range | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [typedNote, setNote] = useState<string | null>(null);

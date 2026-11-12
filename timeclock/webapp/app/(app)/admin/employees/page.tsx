@@ -1,25 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BellRing, ChevronDown, KeyRound, TabletSmartphone, UserPlus } from "lucide-react";
+import { ChevronRight, Search, TabletSmartphone, UserPlus } from "lucide-react";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
+import { filterEmployees } from "@/lib/employee-list";
 import { useSession } from "@/hooks/use-session";
 import { cn } from "@/lib/utils";
+import { EmployeeSheet, ROLES, type Emp, type HaEntities } from "@/components/admin/employee-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,36 +25,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-interface Emp {
-  id: string;
-  displayName: string;
-  role: string;
-  active: boolean;
-  haUsername: string | null;
-  hasPin: boolean;
-  notifyService: string | null;
-  presenceEntity: string | null;
-  accessEntities: string[];
-  hourlyRateCents: number | null;
-  payTracking: boolean;
-}
-
-interface HaEntities {
-  available: boolean;
-  presence: { entity_id: string; name: string; state: string }[];
-  notify: string[];
-}
-
-const ROLES = ["employee", "lead", "manager", "admin"] as const;
-
-// Radix Select forbids empty-string item values, so the "clear" option uses a
-// sentinel that we translate back to "" (server stores that as NULL) on change.
-const NONE = "__none__";
-
-const errMsg = (e: unknown) =>
-  e instanceof ApiError ? `Error ${e.status}: ${JSON.stringify(e.body)}` : "Request failed";
+/** Readable error; names the rejected fields when the server lists them. */
+const errMsg = (e: unknown) => {
+  const fields =
+    e instanceof ApiError
+      ? Object.keys((e.body as { detail?: { fieldErrors?: object } } | null)?.detail?.fieldErrors ?? {})
+      : [];
+  return apiErrorText(e) + (fields.length ? ` (${fields.join(", ")})` : "");
+};
 
 export default function EmployeesAdminPage() {
   const qc = useQueryClient();
@@ -67,8 +42,9 @@ export default function EmployeesAdminPage() {
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("employee");
   const [pin, setPin] = useState("");
-  const [pinTarget, setPinTarget] = useState<Emp | null>(null);
-  const [newPin, setNewPin] = useState("");
+  const [tab, setTab] = useState<"active" | "inactive">("active");
+  const [query, setQuery] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const list = useQuery({
     queryKey: ["admin-employees"],
@@ -77,7 +53,7 @@ export default function EmployeesAdminPage() {
     retry: false,
   });
 
-  // Fetched once and shared across every employee card's presence pickers.
+  // Fetched once and shared by the detail sheet's presence pickers.
   const haEntities = useQuery({
     queryKey: ["ha-entities"],
     queryFn: () => apiGet<HaEntities>("/admin/ha-entities"),
@@ -92,23 +68,27 @@ export default function EmployeesAdminPage() {
 
   const create = useMutation({
     mutationFn: () =>
-      apiPost("/admin/employees", { displayName: name, role, pin: pin || undefined }),
-    onSuccess: () => {
+      apiPost<{ employee: { id: string } }>("/admin/employees", {
+        displayName: name,
+        role,
+        pin: pin || undefined,
+      }),
+    onSuccess: (res) => {
       setName("");
       setPin("");
       toast.success("Employee created.");
       refresh();
+      setOpenId(res.employee.id);
     },
     onError: (e) => toast.error(errMsg(e)),
   });
 
   const setEmployeePin = useMutation({
-    mutationFn: (vars: { id: string; pin: string }) =>
+    mutationFn: (vars: { id: string; pin: string; done: () => void }) =>
       apiPost(`/admin/employees/${vars.id}/pin`, { pin: vars.pin }),
-    onSuccess: () => {
+    onSuccess: (_res, vars) => {
       toast.success("PIN updated.");
-      setPinTarget(null);
-      setNewPin("");
+      vars.done();
       refresh();
     },
     onError: (e) => toast.error(errMsg(e)),
@@ -199,6 +179,11 @@ export default function EmployeesAdminPage() {
       </Container>
     );
 
+  const all = list.data?.employees ?? [];
+  const shown = filterEmployees(all, tab, query);
+  const activeCount = all.filter((e) => e.active).length;
+  const open = all.find((e) => e.id === openId) ?? null;
+
   return (
     <Container>
       <Card>
@@ -243,284 +228,85 @@ export default function EmployeesAdminPage() {
             </div>
           </div>
           <div>
-            <Button onClick={() => create.mutate()} disabled={!name || create.isPending}>
+            <Button onClick={() => create.mutate()} disabled={!name.trim() || create.isPending}>
               <UserPlus /> Add employee
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {list.isLoading && (
-        <>
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </>
-      )}
-
-      {list.data?.employees.length === 0 && (
-        <p className="text-sm text-muted-foreground">No employees yet.</p>
-      )}
-
-      {list.data?.employees.map((e) => (
-        <Card key={e.id} className={cn(!e.active && "opacity-60")}>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <Avatar employeeId={e.id} name={e.displayName} size="sm" />
-                <span className="truncate font-medium">{e.displayName}</span>
-                <Badge variant={e.hasPin ? "secondary" : "outline"}>
-                  {e.hasPin ? "PIN set" : "No PIN"}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Label
-                  htmlFor={`active-${e.id}`}
-                  className="text-xs text-muted-foreground"
-                >
-                  {e.active ? "Active" : "Inactive"}
-                </Label>
-                <Switch
-                  id={`active-${e.id}`}
-                  checked={e.active}
-                  onCheckedChange={(checked) =>
-                    toggleActive.mutate({ id: e.id, active: checked })
-                  }
-                />
-              </div>
+      <Card>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Tabs value={tab} onValueChange={(v) => setTab(v as "active" | "inactive")}>
+              <TabsList>
+                <TabsTrigger value="active">Active ({activeCount})</TabsTrigger>
+                <TabsTrigger value="inactive">Inactive ({all.length - activeCount})</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="relative sm:ml-auto sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name, role, HA user"
+                aria-label="Search employees"
+                className="pl-9"
+                autoComplete="off"
+              />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <Label
-                  htmlFor={`role-${e.id}`}
-                  className="text-xs text-muted-foreground"
+          </div>
+
+          {list.isLoading && (
+            <>
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </>
+          )}
+          {list.isError && <p className="text-sm text-destructive">{errMsg(list.error)}</p>}
+          {list.data && shown.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              {all.length === 0
+                ? "No employees yet."
+                : query
+                  ? "Nobody matches that search."
+                  : tab === "active"
+                    ? "Nobody is active."
+                    : "Nobody is inactive."}
+            </p>
+          )}
+
+          <ul className="-mx-2 flex flex-col">
+            {shown.map((e) => (
+              <li key={e.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpenId(e.id)}
+                  className={cn(
+                    "flex min-h-12 w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none",
+                    !e.active && "opacity-60",
+                  )}
                 >
-                  Role
-                </Label>
-                <Select
-                  value={e.role}
-                  onValueChange={(v) => patch.mutate({ id: e.id, data: { role: v } })}
-                >
-                  <SelectTrigger id={`role-${e.id}`} className="capitalize">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROLES.map((r) => (
-                      <SelectItem key={r} value={r} className="capitalize">
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label
-                  htmlFor={`ha-${e.id}`}
-                  className="text-xs text-muted-foreground"
-                >
-                  Home Assistant username
-                </Label>
-                <HaUsernameField
-                  id={`ha-${e.id}`}
-                  employee={e}
-                  onSave={(haUsername) =>
-                    patch.mutate({ id: e.id, data: { haUsername } })
-                  }
-                />
-              </div>
-            </div>
-            <div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setNewPin("");
-                  setPinTarget(e);
-                }}
-              >
-                <KeyRound /> Set PIN
-              </Button>
-            </div>
-
-            <details className="group rounded-md border border-border">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
-                <BellRing className="size-4" />
-                Presence reminders
-                <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
-              </summary>
-              <div className="flex flex-col gap-3 border-t border-border p-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <Label
-                      htmlFor={`notify-${e.id}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Notify service
-                    </Label>
-                    {haEntities.data && !haEntities.data.available ? (
-                      <FreeTextField
-                        id={`notify-${e.id}`}
-                        value={e.notifyService}
-                        placeholder="notify.mobile_app_x"
-                        onSave={(v) =>
-                          patch.mutate({ id: e.id, data: { notifyService: v } })
-                        }
-                      />
-                    ) : (
-                      <Select
-                        value={e.notifyService ?? NONE}
-                        onValueChange={(v) =>
-                          patch.mutate({
-                            id: e.id,
-                            data: { notifyService: v === NONE ? "" : v },
-                          })
-                        }
-                      >
-                        <SelectTrigger id={`notify-${e.id}`} className="font-mono">
-                          <SelectValue placeholder="— none —" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NONE} className="text-muted-foreground">
-                            — none —
-                          </SelectItem>
-                          {haEntities.data?.notify.map((n) => (
-                            <SelectItem key={n} value={n} className="font-mono">
-                              {n}
-                            </SelectItem>
-                          ))}
-                          {/* Keep a stale/custom value selectable so it isn't silently dropped. */}
-                          {e.notifyService &&
-                            !haEntities.data?.notify.includes(e.notifyService) && (
-                              <SelectItem
-                                value={e.notifyService}
-                                className="font-mono"
-                              >
-                                {e.notifyService}
-                              </SelectItem>
-                            )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label
-                      htmlFor={`presence-${e.id}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Presence entity
-                    </Label>
-                    {haEntities.data && !haEntities.data.available ? (
-                      <FreeTextField
-                        id={`presence-${e.id}`}
-                        value={e.presenceEntity}
-                        placeholder="device_tracker.phone"
-                        onSave={(v) =>
-                          patch.mutate({ id: e.id, data: { presenceEntity: v } })
-                        }
-                      />
-                    ) : (
-                      <Select
-                        value={e.presenceEntity ?? NONE}
-                        onValueChange={(v) =>
-                          patch.mutate({
-                            id: e.id,
-                            data: { presenceEntity: v === NONE ? "" : v },
-                          })
-                        }
-                      >
-                        <SelectTrigger id={`presence-${e.id}`}>
-                          <SelectValue placeholder="— none —" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NONE} className="text-muted-foreground">
-                            — none —
-                          </SelectItem>
-                          {haEntities.data?.presence.map((p) => (
-                            <SelectItem key={p.entity_id} value={p.entity_id}>
-                              <span className="flex flex-col items-start">
-                                <span>{p.name}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {p.entity_id} · {p.state}
-                                </span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                          {e.presenceEntity &&
-                            !haEntities.data?.presence.some(
-                              (p) => p.entity_id === e.presenceEntity,
-                            ) && (
-                              <SelectItem value={e.presenceEntity}>
-                                {e.presenceEntity}
-                              </SelectItem>
-                            )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-1.5 sm:col-span-2">
-                    <Label htmlFor={`access-${e.id}`} className="text-xs text-muted-foreground">
-                      Door card readers (clock-ins with no swipe get flagged)
-                    </Label>
-                    <FreeTextField
-                      id={`access-${e.id}`}
-                      value={e.accessEntities.join(", ")}
-                      placeholder="binary_sensor.front_door_rfid_name, …"
-                      onSave={(v) =>
-                        patch.mutate({
-                          id: e.id,
-                          data: { accessEntities: v.split(",").map((s) => s.trim()).filter(Boolean) },
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor={`rate-${e.id}`} className="text-xs text-muted-foreground">
-                      Hourly rate ($/h)
-                    </Label>
-                    <FreeTextField
-                      id={`rate-${e.id}`}
-                      value={e.hourlyRateCents == null ? null : (e.hourlyRateCents / 100).toFixed(2)}
-                      placeholder="e.g. 25.50"
-                      onSave={(v) => {
-                        const n = Number(v.replace(/[$,\s]/g, ""));
-                        if (v.trim() !== "" && (!Number.isFinite(n) || n < 0)) {
-                          toast.error("Rate must be a number, e.g. 25.50");
-                          return;
-                        }
-                        patch.mutate({
-                          id: e.id,
-                          data: { hourlyRateCents: v.trim() === "" ? null : Math.round(n * 100) },
-                        });
-                      }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
-                    <Label htmlFor={`paytrack-${e.id}`} className="flex flex-col items-start gap-1">
-                      Track pay
-                      <span className="text-xs font-normal text-muted-foreground">
-                        Off = no rate, amounts or bonuses for this person
+                  <Avatar employeeId={e.id} name={e.displayName} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{e.displayName}</span>
+                    {e.haUsername && (
+                      <span className="block truncate font-mono text-xs text-muted-foreground">
+                        {e.haUsername}
                       </span>
-                    </Label>
-                    <Switch
-                      id={`paytrack-${e.id}`}
-                      checked={e.payTracking}
-                      onCheckedChange={(v) => patch.mutate({ id: e.id, data: { payTracking: v } })}
-                    />
-                  </div>
-                </div>
-                {haEntities.data && !haEntities.data.available && (
-                  <p className="text-xs text-muted-foreground">
-                    HA discovery is unavailable — enter the notify service and
-                    presence entity IDs manually.
-                  </p>
-                )}
-              </div>
-            </details>
-          </CardContent>
-        </Card>
-      ))}
+                    )}
+                  </span>
+                  <Badge variant="outline" className="capitalize">
+                    {e.role}
+                  </Badge>
+                  {!e.hasPin && <Badge variant="outline">No PIN</Badge>}
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border p-3">
         <p className="text-xs text-muted-foreground">
@@ -536,141 +322,16 @@ export default function EmployeesAdminPage() {
         </Button>
       </div>
 
-      <Dialog
-        open={!!pinTarget}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPinTarget(null);
-            setNewPin("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Set PIN</DialogTitle>
-            <DialogDescription>
-              New PIN for {pinTarget?.displayName ?? "employee"} (4–12 digits).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="set-pin-input">PIN</Label>
-            <Input
-              id="set-pin-input"
-              value={newPin}
-              onChange={(e) => setNewPin(e.target.value)}
-              inputMode="numeric"
-              autoComplete="off"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newPin && pinTarget && !setEmployeePin.isPending) {
-                  setEmployeePin.mutate({ id: pinTarget.id, pin: newPin });
-                }
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setPinTarget(null);
-                setNewPin("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                pinTarget && setEmployeePin.mutate({ id: pinTarget.id, pin: newPin })
-              }
-              disabled={!newPin || setEmployeePin.isPending}
-            >
-              Save PIN
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EmployeeSheet
+        employee={open}
+        haEntities={haEntities.data}
+        onClose={() => setOpenId(null)}
+        onPatch={(data) => open && patch.mutate({ id: open.id, data })}
+        onActive={(active) => open && toggleActive.mutate({ id: open.id, active })}
+        onPin={(p, done) => open && setEmployeePin.mutate({ id: open.id, pin: p, done })}
+        pinPending={setEmployeePin.isPending}
+      />
     </Container>
-  );
-}
-
-/** Inline-editable HA username; PATCHes on blur or Enter when the value changed. */
-function HaUsernameField({
-  id,
-  employee,
-  onSave,
-}: {
-  id: string;
-  employee: Emp;
-  onSave: (haUsername: string | null) => void;
-}) {
-  const [value, setValue] = useState(employee.haUsername ?? "");
-
-  useEffect(() => {
-    setValue(employee.haUsername ?? "");
-  }, [employee.haUsername]);
-
-  const commit = () => {
-    const next = value.trim() || null;
-    if (next === (employee.haUsername ?? null)) return;
-    onSave(next);
-  };
-
-  return (
-    <Input
-      id={id}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      placeholder="HA username"
-      className="font-mono"
-      autoComplete="off"
-    />
-  );
-}
-
-/**
- * Free-text fallback for a presence mapping when HA discovery is unavailable.
- * Commits on blur / Enter; empty string clears the mapping (server -> NULL).
- */
-function FreeTextField({
-  id,
-  value,
-  placeholder,
-  onSave,
-}: {
-  id: string;
-  value: string | null;
-  placeholder: string;
-  onSave: (value: string) => void;
-}) {
-  const [draft, setDraft] = useState(value ?? "");
-
-  useEffect(() => {
-    setDraft(value ?? "");
-  }, [value]);
-
-  const commit = () => {
-    const next = draft.trim();
-    if (next === (value ?? "")) return;
-    onSave(next);
-  };
-
-  return (
-    <Input
-      id={id}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      placeholder={placeholder}
-      className="font-mono"
-      autoComplete="off"
-    />
   );
 }
 

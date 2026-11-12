@@ -10,7 +10,7 @@ import { requireRole, ROLES } from "@/server/auth/rbac";
 import { hashPin } from "@/server/auth/pin";
 import { registerDevice, DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE } from "@/server/auth/device";
 import { appendAudit } from "@/server/domain/audit/writer";
-import { getSettings, updateSettings } from "@/server/domain/settings";
+import { getSettings, updateSettings, zodIssues } from "@/server/domain/settings";
 import {
   buildPackageYaml,
   installIntegration,
@@ -241,8 +241,9 @@ export const admin = new Hono<AppEnv>()
     try {
       const merged = await updateSettings(patch, actor.employee.id);
       return c.json({ settings: merged });
-    } catch {
-      return c.json({ error: "invalid_settings" }, 400);
+    } catch (e) {
+      // issues: [{ path: "overtime.multiplier1", message }] so the UI can mark the field.
+      return c.json({ error: "invalid_settings", issues: e instanceof z.ZodError ? zodIssues(e) : [] }, 400);
     }
   })
 
