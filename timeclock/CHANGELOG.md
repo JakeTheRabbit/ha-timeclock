@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.13.0 — context where decisions get made
+
+Staff
+- **Clock screen**: when clocked out, "Last out · today · this week of usual ·
+  next shift"; job prefilled from the roster / last entry; the timer and day
+  total survive a job switch. Break guidance: rest/meal progress, "Rest ends
+  10:42" (amber when over), and a warning before clock-out when a meal break
+  would be auto-deducted.
+- **Home**: live status card — clock in/out in one tap, today / week vs usual,
+  next shift, disputes banner, pending leave.
+- **Leave**: dates and hours prefilled from usual workdays (skips weekends and
+  public holidays), "3 days · 24h · 40h left after this", balance per type;
+  requests grouped Pending / Upcoming / Past with the manager's note and a
+  Withdraw button. Server now counts pending requests against the balance
+  (two pending requests could overbook before).
+- **Corrections**: day cards show Correction pending / approved / declined;
+  on an approved day with several start/finishes you pick which to correct.
+- **Smart defaults** use the last 28 days, skip leave and public holidays, and
+  use the rostered shift when there is one; a weekday is "usual" only when
+  worked on 2+ of the last 4.
+- **Day editor** uses time-only inputs (day is fixed) with automatic next-day
+  rollover for overnight finishes; break row stacks on phones.
+- Staff are notified when leave or a correction is approved or declined.
+
+Managers
+- **Dashboard**: "On the clock" shows today's total and progress to rostered
+  end, plus who's rostered but not in (late / due in / didn't show). Correction
+  cards show old ⇒ new, the hours change, the day's hour strip and Open day.
+  Leave cards show balance after approval, who else is off, who's rostered,
+  a decline reason and Approve all.
+- **Timesheet review** opens on everyone ready to approve, grouped by person
+  and week, with hour strips, breaks, rostered times and +/− vs usual;
+  Approve all / per person; staff changes grouped by person → day with
+  "Acknowledge + approve day"; Reopen uses a proper dialog.
+- **Pay periods**: lock readiness checklist per person (open shifts, disputes,
+  unapproved days, pending corrections / leave) with links; "Lock anyway";
+  each person expands into the period's days with named flags.
+- **Pay**: opens on whoever is owed most, last pay period range, entries
+  grouped by week with subtotals, Select all unpaid / this week, note
+  prefilled from the last one with today's date, locale currency, mobile fix.
+
+API: /clock/status (todayWorkedMin, shiftStart, breaks, breakRule),
+/leave/:id/cancel, /leave/pending (balance, alsoOff, rostered),
+/corrections/pending (original, day, dayEntries), /corrections/mine (day,
+range), /review/days/all, /manager/pay-periods/:id/readiness,
+/pay/employees (unpaidCents, lastNote), /manager/leave.
+
 ## 0.12.0 — fixes + quick ease-of-use wins
 
 Fixes
