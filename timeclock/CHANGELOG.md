@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0 — calendar, whole-day editor, smart defaults
+
+- **Calendar** on **My hours** and **Manager → Entries**: month view, hours per
+  day, a 24-hour strip per day, approved days green, days needing a look
+  dotted amber. Click a day to jump to it; empty days offer "Add time".
+- **Day cards**: one card per day, start/finishes in time order, with a
+  **24-dot hour strip** (work / break / off). Replaces the one-card-per-entry
+  manager list that was sorted newest-first inside a day.
+- **Whole-day editor**: "Fix times" / "Edit day" opens every start/finish on
+  the day together — change, **add** or **remove** any of them plus their
+  breaks, one reason for the lot. A **Gantt strip** at the top shows how it
+  all lines up (work, paid break, unpaid break) with the day total, and
+  overlaps / breaks outside a shift are flagged before saving.
+- **Smart defaults**: new times start from the person's usual start/finish
+  (median of their recent days); an extra start/finish fills the biggest gap
+  in the day; "Add missed time" picks the most recent usual workday with
+  nothing recorded; new breaks land mid-way through the longest unbroken
+  stretch (30 min unpaid on a 5h+ shift without a meal break, else 10 min
+  paid).
+
 ## 0.10.0 — staff day editing & timesheet review
 
 Staff now have full control of their own days until a manager approves them.

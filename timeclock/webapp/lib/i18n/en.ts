@@ -280,6 +280,17 @@ const en = {
   "toast.timeAdded": "Time added.",
   "toast.timeRemoved": "Time removed.",
   "toast.replySent": "Reply sent.",
+  // ---- Day editor (0.11.0) ----
+  "myHours.entryN": "Start/finish {n}",
+  "myHours.removeEntry": "Remove",
+  "myHours.willRemove": "Will be removed",
+  "myHours.undo": "Undo",
+  "myHours.problemOrder": "Finish must be after start.",
+  "myHours.problemBreak": "Break must sit inside this start/finish.",
+  "myHours.problemOverlap": "Overlaps another start/finish.",
+  "myHours.legendWork": "Work",
+  "myHours.legendPaidBreak": "Paid break",
+  "myHours.legendUnpaidBreak": "Unpaid break",
 } as const;
 
 export default en;

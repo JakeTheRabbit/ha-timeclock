@@ -5,16 +5,18 @@ import * as React from "react";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CircleCheck, MessageCircleQuestion, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import { CircleCheck, MessageCircleQuestion, Pencil, Plus, Send } from "lucide-react";
 import { apiGet, apiPost } from "@/lib/api-client";
 import {
   EditEntryDialog,
-  RemoveEntryDialog,
   Textarea,
   errMsg,
   localDay,
+  suggestMissingDay,
+  typicalFrom,
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
+import { HourDots, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
@@ -22,21 +24,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-type Range = "today" | "week" | "fortnight" | "month";
-
-function rangeDates(r: Range): { from: Date; to: Date } {
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const monday = (start.getDay() + 6) % 7; // Monday start
-  if (r === "week") start.setDate(start.getDate() - monday);
-  else if (r === "fortnight") start.setDate(start.getDate() - monday - 7);
-  else if (r === "month") start.setDate(start.getDate() - 30);
-  const to = new Date(now.getTime() + 24 * 3600_000);
-  return { from: start, to };
-}
 
 type TFn = (key: MessageKey, vars?: TVars) => string;
 
@@ -124,19 +111,19 @@ export default function MyHoursPage() {
   const t = useT();
   const loc = useLocale();
   const fmtT = (s: string) => loc.time(s);
-  const [range, setRange] = useState<Range>("week");
-  const [editing, setEditing] = useState<{ entry: EntryRow | null; day?: string } | null>(null);
-  const [removing, setRemoving] = useState<EntryRow | null>(null);
+  const [month, setMonth] = useState(() => monthStart(new Date()));
+  const [selected, setSelected] = useState<string | null>(localDay());
+  const [editing, setEditing] = useState<{ day: string; focusId?: string; addNew?: boolean } | null>(null);
 
-  const { from, to } = useMemo(() => rangeDates(range), [range]);
+  const { start: from, end: to } = useMemo(() => monthGrid(month), [month]);
   const list = useQuery({
-    queryKey: ["my-hours", range],
+    queryKey: ["my-hours", from.toISOString()],
     queryFn: () =>
       apiGet<{ entries: EntryRow[] }>(`/entries/mine?from=${from.toISOString()}&to=${to.toISOString()}`),
     enabled: !!session,
   });
   const review = useQuery({
-    queryKey: ["my-review", range],
+    queryKey: ["my-review", from.toISOString()],
     queryFn: () =>
       apiGet<{ approvedDays: string[]; modifications: ModRow[] }>(
         `/review/mine?from=${localDay(new Date(from.getTime() - 86400_000))}&to=${localDay(to)}`,
@@ -156,8 +143,8 @@ export default function MyHoursPage() {
     qc.invalidateQueries({ queryKey: ["my-disputes"] });
   };
 
-  const entries = list.data?.entries ?? [];
-  const totalMin = entries.reduce((a, e) => a + (e.workedMinutes ?? 0), 0);
+  const entries = useMemo(() => list.data?.entries ?? [], [list.data]);
+  const typical = useMemo(() => typicalFrom(entries), [entries]);
 
   // Group by facility day, newest first; entries inside a day oldest first.
   const days = useMemo(() => {
@@ -213,30 +200,25 @@ export default function MyHoursPage() {
         </Card>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
-          <TabsList>
-            {(
-              [
-                ["today", "myHours.rangeToday"],
-                ["week", "myHours.rangeWeek"],
-                ["fortnight", "myHours.rangeFortnight"],
-                ["month", "myHours.rangeMonth"],
-              ] as [Range, MessageKey][]
-            ).map(([r, key]) => (
-              <TabsTrigger key={r} value={r} className="capitalize">
-                {t(key)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        <span className="ml-auto text-sm text-muted-foreground">
-          {t("myHours.total")} <span className="font-mono text-foreground">{hrs(totalMin)}</span>
-        </span>
-      </div>
+      <MonthCalendar
+        month={month}
+        onMonth={setMonth}
+        entries={entries}
+        selected={selected}
+        onSelect={setSelected}
+        approvedDays={new Set(review.data?.approvedDays ?? [])}
+        flaggedDays={new Set(pendingByDay.keys())}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button className="min-h-11" onClick={() => setEditing({ entry: null })}>
+        <Button
+          className="min-h-11"
+          onClick={() => {
+            const day = suggestMissingDay(entries, typical);
+            setSelected(day);
+            setEditing({ day, addNew: true });
+          }}
+        >
           <Plus /> {t("myHours.addShift")}
         </Button>
         <p className="flex-1 text-xs text-muted-foreground">{t("myHours.editHint")}</p>
@@ -249,21 +231,29 @@ export default function MyHoursPage() {
         </div>
       )}
 
-      {!list.isLoading && entries.length === 0 && (
-        <Card>
-          <CardContent className="py-4 text-center text-sm text-muted-foreground">{t("myHours.noEntries")}</CardContent>
+      {!list.isLoading && selected && !days.some((d) => d.day === selected) && (
+        <Card className="border-primary/60">
+          <CardContent className="flex flex-wrap items-center gap-3">
+            <span className="font-medium">{loc.date(`${selected}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
+            <span className="text-sm text-muted-foreground">{t("myHours.noEntries")}</span>
+            {selected <= localDay() && (
+              <Button size="sm" className="ml-auto" onClick={() => setEditing({ day: selected, addNew: true })}>
+                <Plus /> {t("myHours.addTime")}
+              </Button>
+            )}
+          </CardContent>
         </Card>
       )}
 
-      {days.map(({ day, entries: es }) => {
+      {[...days.filter((d) => d.day === selected), ...days.filter((d) => d.day !== selected)].map(({ day, entries: es }) => {
         const approved = es.some((e) => e.dayApproved);
         const dayMin = es.reduce((a, e) => a + (e.workedMinutes ?? 0), 0);
         const waiting = pendingByDay.get(day) ?? 0;
         return (
-          <Card key={day}>
+          <Card key={day} className={day === selected ? "border-primary/60" : undefined}>
             <CardContent className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{loc.date(`${day}T12:00:00`)}</span>
+              <button type="button" className="flex flex-wrap items-center gap-2 text-left" onClick={() => setSelected(day)}>
+                <span className="font-medium">{loc.date(`${day}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
                 {approved ? (
                   <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
                     <CircleCheck className="size-3" /> {t("myHours.dayApproved")}
@@ -277,50 +267,37 @@ export default function MyHoursPage() {
                   </Badge>
                 )}
                 <span className="ml-auto font-mono text-sm">{hrs(dayMin)}</span>
-              </div>
+              </button>
 
-              {es.map((e) => (
-                <div key={e.id} className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
-                      {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}
-                      <span className="text-muted-foreground">{hrs(e.workedMinutes)}</span>
-                      {e.edited && (
-                        <Badge className="border-transparent bg-amber-500/15 font-sans text-amber-300">{t("myHours.edited")}</Badge>
-                      )}
-                      {e.paidAt && (
-                        <Badge className="border-transparent bg-emerald-500/15 font-sans text-emerald-300">{t("myHours.paid")}</Badge>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
+              <HourDots day={day} entries={es} />
+
+              <div className="flex flex-col gap-1">
+                {es.map((e) => (
+                  <div key={e.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
+                    {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}
+                    <span className="text-muted-foreground">{hrs(e.workedMinutes)}</span>
+                    <span className="font-sans text-xs text-muted-foreground">
                       {t("myHours.breaks", { value: breaksLabel(e, t) })}
                       {e.job && <> · {e.job.name}</>}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" className="min-h-11 sm:min-h-9" onClick={() => setEditing({ entry: e })}>
-                      <Pencil /> {t("myHours.fixTimes")}
-                    </Button>
-                    {e.selfEditable && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="min-h-11 text-destructive sm:min-h-9"
-                        aria-label={t("myHours.remove")}
-                        onClick={() => setRemoving(e)}
-                      >
-                        <Trash2 />
-                      </Button>
+                    </span>
+                    {e.edited && (
+                      <Badge className="border-transparent bg-amber-500/15 font-sans text-amber-300">{t("myHours.edited")}</Badge>
+                    )}
+                    {e.paidAt && (
+                      <Badge className="border-transparent bg-emerald-500/15 font-sans text-emerald-300">{t("myHours.paid")}</Badge>
                     )}
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
 
-              {!approved && (
-                <Button variant="outline" size="sm" className="self-start" onClick={() => setEditing({ entry: null, day })}>
-                  <Plus /> {t("myHours.addTime")}
-                </Button>
-              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="min-h-11 self-start sm:min-h-9"
+                onClick={() => setEditing({ day, focusId: es[0]?.id })}
+              >
+                <Pencil /> {t("myHours.fixTimes")}
+              </Button>
             </CardContent>
           </Card>
         );
@@ -328,22 +305,15 @@ export default function MyHoursPage() {
 
       {editing && (
         <EditEntryDialog
-          entry={editing.entry}
+          entries={days.find((d) => d.day === editing.day)?.entries ?? []}
+          focusId={editing.focusId}
+          addNew={editing.addNew}
           defaultDay={editing.day}
+          typical={typical}
           mode="self"
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
-            refresh();
-          }}
-        />
-      )}
-      {removing && (
-        <RemoveEntryDialog
-          entry={removing}
-          onClose={() => setRemoving(null)}
-          onDone={() => {
-            setRemoving(null);
             refresh();
           }}
         />

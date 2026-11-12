@@ -274,6 +274,17 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
   "toast.timeAdded": "Tid tillagd.",
   "toast.timeRemoved": "Tid borttagen.",
   "toast.replySent": "Svar skickat.",
+  // ---- Day editor (0.11.0) ----
+  "myHours.entryN": "Start/slut {n}",
+  "myHours.removeEntry": "Ta bort",
+  "myHours.willRemove": "Tas bort",
+  "myHours.undo": "Ångra",
+  "myHours.problemOrder": "Slut måste vara efter start.",
+  "myHours.problemBreak": "Rasten måste ligga inom denna start/slut.",
+  "myHours.problemOverlap": "Överlappar en annan start/slut.",
+  "myHours.legendWork": "Arbete",
+  "myHours.legendPaidBreak": "Betald rast",
+  "myHours.legendUnpaidBreak": "Obetald rast",
 };
 
 export default sv;

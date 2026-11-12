@@ -279,5 +279,16 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "toast.timeAdded": "Zeit hinzugefügt.",
   "toast.timeRemoved": "Zeit entfernt.",
   "toast.replySent": "Antwort gesendet.",
+  // ---- Day editor (0.11.0) ----
+  "myHours.entryN": "Beginn/Ende {n}",
+  "myHours.removeEntry": "Entfernen",
+  "myHours.willRemove": "Wird entfernt",
+  "myHours.undo": "Rückgängig",
+  "myHours.problemOrder": "Ende muss nach Beginn liegen.",
+  "myHours.problemBreak": "Die Pause muss innerhalb dieses Beginn/Ende liegen.",
+  "myHours.problemOverlap": "Überschneidet sich mit einem anderen Beginn/Ende.",
+  "myHours.legendWork": "Arbeit",
+  "myHours.legendPaidBreak": "Bezahlte Pause",
+  "myHours.legendUnpaidBreak": "Unbezahlte Pause",
 };
 export default de;

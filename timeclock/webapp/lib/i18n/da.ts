@@ -267,5 +267,16 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
   "toast.timeAdded": "Tid tilføjet.",
   "toast.timeRemoved": "Tid fjernet.",
   "toast.replySent": "Svar sendt.",
+  // ---- Day editor (0.11.0) ----
+  "myHours.entryN": "Start/slut {n}",
+  "myHours.removeEntry": "Fjern",
+  "myHours.willRemove": "Fjernes",
+  "myHours.undo": "Fortryd",
+  "myHours.problemOrder": "Slut skal være efter start.",
+  "myHours.problemBreak": "Pausen skal ligge inden for denne start/slut.",
+  "myHours.problemOverlap": "Overlapper en anden start/slut.",
+  "myHours.legendWork": "Arbejde",
+  "myHours.legendPaidBreak": "Betalt pause",
+  "myHours.legendUnpaidBreak": "Ubetalt pause",
 };
 export default da;
