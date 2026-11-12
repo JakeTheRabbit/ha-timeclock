@@ -352,6 +352,18 @@ const en = {
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====
+  "myHours.correctionPending": "Correction pending",
+  "myHours.correctionApproved": "Correction approved",
+  "myHours.correctionDeclined": "Correction declined",
+  "myHours.correctionNote": "Manager: {note}",
+  "myHours.fixThis": "Fix",
+  "corrections.in": "In",
+  "corrections.out": "Out",
+  "corrections.worked": "Worked",
+  "corrections.running": "running",
+  "corrections.requestedNote": "Note: {note}",
+  "corrections.openDay": "Open day",
+  "corrections.notePlaceholder": "Note to {name} (optional)",
 
 
   // ==== batch2:REVIEW — add this area's keys directly below ====

@@ -1,13 +1,16 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, gte, lt, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { corrections, employees } from "@/db/schema";
+import { corrections, employees, timeEntries } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole } from "@/server/auth/rbac";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { applyEntryEdit, EditError } from "@/server/domain/time/edit";
 import { EditGuardError } from "@/server/domain/payperiod/errors";
+import { dayOf } from "@/server/domain/time/day-review";
+import { hydrateEntries } from "@/server/routes/entries";
+import { notifyEmployee } from "@/server/integrations/notify/personal";
 
 const requestSchema = z.object({
   timeEntryId: z.string().uuid(),
@@ -22,6 +25,19 @@ const requestSchema = z.object({
 });
 
 const reviewSchema = z.object({ note: z.string().max(500).optional() });
+
+/** Tell the person their correction was decided (HA push; no-op without a notify service). */
+async function notifyDecision(employeeId: string, timeEntryId: string, approved: boolean, note?: string) {
+  const db = getDb();
+  const emp = await db.query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, employeeId) });
+  if (!emp) return;
+  const entry = await db.query.timeEntries.findFirst({ where: (t, { eq: eq_ }) => eq_(t.id, timeEntryId) });
+  const day = entry ? ` for ${dayOf(entry.clockIn)}` : "";
+  void notifyEmployee(emp, {
+    title: approved ? "Time Clock: correction approved" : "Time Clock: correction declined",
+    message: `Your correction${day} was ${approved ? "approved" : "declined"}${note ? `: ${note}` : "."}`,
+  });
+}
 
 export const correctionsRoute = new Hono<AppEnv>()
   .use(requireRole("employee"))
@@ -60,14 +76,22 @@ export const correctionsRoute = new Hono<AppEnv>()
     return c.json({ ok: true, correctionId: row.id }, 201);
   })
 
+  // Optional ?from=&to= (YYYY-MM-DD, inclusive) limit to the entry's facility day.
   .get("/mine", async (c) => {
     const me = c.get("auth")!.employee;
+    const from = c.req.query("from");
+    const to = c.req.query("to");
     const rows = await getDb()
-      .select()
+      .select({ correction: corrections, clockIn: timeEntries.clockIn })
       .from(corrections)
+      .innerJoin(timeEntries, eq(corrections.timeEntryId, timeEntries.id))
       .where(eq(corrections.employeeId, me.id))
       .orderBy(desc(corrections.createdAt));
-    return c.json({ corrections: rows });
+    return c.json({
+      corrections: rows
+        .map((r) => ({ ...r.correction, day: dayOf(r.clockIn) }))
+        .filter((r) => (!from || r.day >= from) && (!to || r.day <= to)),
+    });
   })
 
   // ---- Review queue (lead and above) ----
@@ -81,7 +105,40 @@ export const correctionsRoute = new Hono<AppEnv>()
       .innerJoin(employees, eq(corrections.employeeId, employees.id))
       .where(eq(corrections.status, "pending"))
       .orderBy(corrections.createdAt);
-    return c.json({ corrections: rows.map((r) => ({ ...r.correction, employeeName: r.employeeName })) });
+    const db = getDb();
+    const ids = [...new Set(rows.map((r) => r.correction.timeEntryId))];
+    const targets = ids.length ? await db.select().from(timeEntries).where(inArray(timeEntries.id, ids)) : [];
+    const byId = new Map(targets.map((e) => [e.id, e]));
+    // The whole day as it is now (all that person's start/finishes + breaks),
+    // so the reviewer sees the change in context.
+    const out = await Promise.all(
+      rows.map(async (r) => {
+        const entry = byId.get(r.correction.timeEntryId);
+        if (!entry) return null;
+        const day = dayOf(entry.clockIn);
+        const near = await db
+          .select()
+          .from(timeEntries)
+          .where(
+            and(
+              eq(timeEntries.employeeId, entry.employeeId),
+              gte(timeEntries.clockIn, new Date(entry.clockIn.getTime() - 36 * 3600_000)),
+              lt(timeEntries.clockIn, new Date(entry.clockIn.getTime() + 36 * 3600_000)),
+            ),
+          );
+        const dayEntries = (await hydrateEntries(near.filter((e) => dayOf(e.clockIn) === day))).sort(
+          (a, b) => +a.clockIn - +b.clockIn,
+        );
+        return {
+          ...r.correction,
+          employeeName: r.employeeName,
+          day,
+          original: { clockIn: entry.clockIn, clockOut: entry.clockOut },
+          dayEntries,
+        };
+      }),
+    );
+    return c.json({ corrections: out.filter((x) => x != null) });
   })
 
   .post("/:id/approve", requireRole("lead"), async (c) => {
@@ -137,6 +194,7 @@ export const correctionsRoute = new Hono<AppEnv>()
       reason: body.data.note ?? null,
       newValue: { timeEntryId: row.timeEntryId },
     });
+    await notifyDecision(row.employeeId, row.timeEntryId, true, body.data.note);
     return c.json({ ok: true });
   })
 
@@ -169,5 +227,6 @@ export const correctionsRoute = new Hono<AppEnv>()
       actorId: reviewer.id,
       reason: body.data.note ?? null,
     });
+    await notifyDecision(row.employeeId, row.timeEntryId, false, body.data.note);
     return c.json({ ok: true });
   });

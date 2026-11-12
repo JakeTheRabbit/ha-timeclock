@@ -37,6 +37,14 @@ export interface ModRow {
   messages: { id: string; authorId: string; authorName: string; body: string; createdAt: string }[];
 }
 
+interface MyCorrection {
+  id: string;
+  day: string;
+  status: "pending" | "approved" | "rejected";
+  reviewNote: string | null;
+  reviewedAt: string | null;
+}
+
 const hrs = (min: number | null) => (min == null ? "—" : (min / 60).toFixed(2) + "h");
 
 const breaksLabel = (e: EntryRow, t: TFn) =>
@@ -151,11 +159,18 @@ export default function MyHoursPage() {
     enabled: !!session,
     refetchInterval: 60_000,
   });
+  const myCorrections = useQuery({
+    queryKey: ["my-corrections", from.toISOString()],
+    queryFn: () =>
+      apiGet<{ corrections: MyCorrection[] }>(`/corrections/mine?from=${localDay(from)}&to=${localDay(to)}`),
+    enabled: !!session,
+  });
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["my-hours"] });
     qc.invalidateQueries({ queryKey: ["my-review"] });
     qc.invalidateQueries({ queryKey: ["my-disputes"] });
+    qc.invalidateQueries({ queryKey: ["my-corrections"] });
   };
 
   const entries = useMemo(() => list.data?.entries ?? [], [list.data]);
@@ -189,6 +204,19 @@ export default function MyHoursPage() {
     for (const x of review.data?.modifications ?? []) if (x.status === "pending") m.set(x.day, (m.get(x.day) ?? 0) + 1);
     return m;
   }, [review.data]);
+
+  // One correction badge per day: a pending one wins, else the latest decided
+  // in the last 14 days (newest first from the API).
+  const correctionByDay = useMemo(() => {
+    const m = new Map<string, MyCorrection>();
+    const recent = Date.now() - 14 * 86400_000;
+    for (const c of myCorrections.data?.corrections ?? []) {
+      if (c.status !== "pending" && (!c.reviewedAt || +new Date(c.reviewedAt) < recent)) continue;
+      const cur = m.get(c.day);
+      if (!cur || (c.status === "pending" && cur.status !== "pending")) m.set(c.day, c);
+    }
+    return m;
+  }, [myCorrections.data]);
 
   if (isLoading)
     return (
@@ -237,7 +265,13 @@ export default function MyHoursPage() {
         selected={selected}
         onSelect={setSelected}
         approvedDays={new Set(review.data?.approvedDays ?? [])}
-        flaggedDays={new Set([...pendingByDay.keys(), ...(disputes.data?.modifications.map((m) => m.day) ?? [])])}
+        flaggedDays={
+          new Set([
+            ...pendingByDay.keys(),
+            ...(disputes.data?.modifications.map((m) => m.day) ?? []),
+            ...correctionByDay.keys(),
+          ])
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -279,6 +313,9 @@ export default function MyHoursPage() {
         const approved = es.some((e) => e.dayApproved);
         const dayMin = es.reduce((a, e) => a + liveMinutes(e), 0);
         const waiting = pendingByDay.get(day) ?? 0;
+        const corr = correctionByDay.get(day);
+        // Approved day with several start/finishes: pick which one to correct.
+        const pickEntry = approved && es.length > 1;
         return (
           <Card key={day} className={day === selected ? "border-primary/60" : undefined}>
             <CardContent className="flex flex-col gap-3">
@@ -296,8 +333,30 @@ export default function MyHoursPage() {
                     {t("myHours.changesWaiting", { n: waiting })}
                   </Badge>
                 )}
+                {corr && (
+                  <Badge
+                    className={`border-transparent ${
+                      corr.status === "pending"
+                        ? "bg-amber-500/15 text-amber-300"
+                        : corr.status === "approved"
+                          ? "bg-emerald-500/15 text-emerald-300"
+                          : "bg-red-500/15 text-red-300"
+                    }`}
+                  >
+                    {t(
+                      corr.status === "pending"
+                        ? "myHours.correctionPending"
+                        : corr.status === "approved"
+                          ? "myHours.correctionApproved"
+                          : "myHours.correctionDeclined",
+                    )}
+                  </Badge>
+                )}
                 <span className="ml-auto font-mono text-sm">{hrs(dayMin)}</span>
               </button>
+              {corr?.reviewNote && (
+                <p className="text-xs text-muted-foreground">{t("myHours.correctionNote", { note: corr.reviewNote })}</p>
+              )}
 
               <HourDots day={day} entries={es} />
 
@@ -316,18 +375,30 @@ export default function MyHoursPage() {
                     {e.paidAt && (
                       <Badge className="border-transparent bg-emerald-500/15 font-sans text-emerald-300">{t("myHours.paid")}</Badge>
                     )}
+                    {pickEntry && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="ml-auto min-h-11 font-sans sm:min-h-8"
+                        onClick={() => setEditing({ day, focusId: e.id })}
+                      >
+                        <Pencil /> {t("myHours.fixThis")}
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
 
-              <Button
-                variant="secondary"
-                size="sm"
-                className="min-h-11 self-start sm:min-h-9"
-                onClick={() => setEditing({ day, focusId: es[0]?.id })}
-              >
-                <Pencil /> {t("myHours.fixTimes")}
-              </Button>
+              {!pickEntry && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="min-h-11 self-start sm:min-h-9"
+                  onClick={() => setEditing({ day, focusId: es[0]?.id })}
+                >
+                  <Pencil /> {t("myHours.fixTimes")}
+                </Button>
+              )}
             </CardContent>
           </Card>
         );
