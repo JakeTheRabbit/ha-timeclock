@@ -1067,30 +1067,87 @@ function handle(req: Req): { status: number; body: Json } {
     }
     return ok({ now: iso(now), clockedIn, todayClosedMin });
   }
-  if (seg === "/manager/pay-periods" && method === "GET") {
-    const periods = [0, 1, 2].map((i) => {
+  const demoPeriods = () =>
+    [0, 1, 2].map((i) => {
       const end = daysAgo(i * 14);
       const start = daysAgo(i * 14 + 13);
       return { id: uuid(1300 + i), startAt: iso(start), endAt: iso(end), lockedAt: i === 2 ? iso(daysAgo(i * 14 - 1)) : null };
     });
-    return ok({ periods });
+  const demoPeriod = (id: string) => demoPeriods().find((p) => p.id === id) ?? demoPeriods()[0];
+  const inDemoPeriod = (p: { startAt: string; endAt: string }, at: string) => at >= p.startAt && at < p.endAt;
+  if (seg === "/manager/pay-periods" && method === "GET") {
+    return ok({ periods: demoPeriods() });
   }
   if (/^\/manager\/pay-periods\/[^/]+\/timesheet$/.test(seg)) {
-    const id = seg.split("/")[3];
-    const period = { id, startAt: iso(daysAgo(13)), endAt: iso(new Date()), lockedAt: null };
+    const period = demoPeriod(seg.split("/")[3]);
     const rows = state.employees
       .filter((e) => e.role !== "admin")
       .map((e) => {
-        const worked = 60 * (60 + (e.displayName.length % 20));
+        const byDay = new Map<string, DemoEntry[]>();
+        for (const x of state.entries) {
+          if (x.employeeId !== e.id || !x.clockOut || !inDemoPeriod(period, x.clockIn)) continue;
+          const day = facDay(x.clockIn);
+          byDay.set(day, [...(byDay.get(day) ?? []), x]);
+        }
+        const days = [...byDay.entries()].sort().map(([date, es]) => {
+          const worked = es.reduce((a, x) => a + workedMin(x), 0);
+          return {
+            date,
+            workedMin: worked,
+            rawWorkedMin: worked,
+            edited: es.some((x) => x.edited),
+            entryIds: es.map((x) => x.id),
+            publicHoliday: null,
+            timeAndAHalfMin: 0,
+            altHolidayEarned: false,
+            complianceFlags: worked > 360 && !es.some((x) => entryBreaks(x.id).length) ? ["missing_meal_break"] : [],
+          };
+        });
+        const worked = days.reduce((a, d) => a + d.workedMin, 0);
         const ordinary = Math.min(worked, 4800);
         const ot1 = Math.max(0, worked - 4800);
         return {
           employeeId: e.id,
           employeeName: e.displayName,
-          totals: { workedMin: worked, ordinaryMin: ordinary, ot1Min: ot1, ot2Min: 0, statT15Min: 0, altHolidaysEarned: e.displayName.length % 2, editedDays: e.displayName === "Jordan Lee" ? 1 : 0, complianceFlagCount: 0 },
+          days,
+          totals: { workedMin: worked, ordinaryMin: ordinary, ot1Min: ot1, ot2Min: 0, statT15Min: 0, altHolidaysEarned: 0, editedDays: days.filter((d) => d.edited).length, complianceFlagCount: days.reduce((a, d) => a + d.complianceFlags.length, 0) },
         };
       });
     return ok({ period, rows });
+  }
+  if (/^\/manager\/pay-periods\/[^/]+\/readiness$/.test(seg)) {
+    const period = demoPeriod(seg.split("/")[3]);
+    const firstDay = facDay(period.startAt);
+    const lastDay = facDay(iso(new Date(+new Date(period.endAt) - 1)));
+    const inDays = (day: string) => day >= firstDay && day <= lastDay;
+    const people = state.employees
+      .filter((e) => e.role !== "admin")
+      .map((e) => {
+        const mine = state.entries.filter((x) => x.employeeId === e.id && inDemoPeriod(period, x.clockIn));
+        const uniq = (xs: string[]) => [...new Set(xs)].sort();
+        return {
+          employeeId: e.id,
+          employeeName: e.displayName,
+          approvedDays: uniq(state.approvals.filter((a) => a.employeeId === e.id && inDays(a.day)).map((a) => a.day)),
+          unapprovedDays: uniq(mine.map((x) => facDay(x.clockIn)).filter((d) => !isApproved(e.id, d))),
+          disputedDays: uniq(state.mods.filter((m) => m.employeeId === e.id && m.status === "disputed" && inDays(m.day)).map((m) => m.day)),
+          correctionDays: uniq(
+            state.corrections
+              .filter((c) => c.employeeId === e.id && c.status === "pending")
+              .map((c) => mine.find((x) => x.id === c.entryId))
+              .filter((x): x is DemoEntry => !!x)
+              .map((x) => facDay(x.clockIn)),
+          ),
+          openShiftDays: uniq(mine.filter((x) => !x.clockOut).map((x) => facDay(x.clockIn))),
+          pendingLeave: state.leave
+            .filter((l) => l.employeeId === e.id && l.status === "pending" && l.startDate <= lastDay && l.endDate >= firstDay)
+            .map((l) => ({ id: l.id, type: l.type, startDate: l.startDate, endDate: l.endDate })),
+        };
+      });
+    const ready = people.every(
+      (p) => !p.unapprovedDays.length && !p.disputedDays.length && !p.correctionDays.length && !p.openShiftDays.length && !p.pendingLeave.length,
+    );
+    return ok({ firstDay, lastDay, ready, people });
   }
   if (/^\/manager\/pay-periods\/[^/]+\/lock$/.test(seg) && method === "POST") {
     pushAudit({ entityType: "pay_period", entityId: seg.split("/")[3], action: "lock", actorId: me().id, reason: null, oldValue: null, newValue: JSON.stringify({ lockedAt: iso(new Date()) }) });

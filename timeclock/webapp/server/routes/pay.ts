@@ -1,20 +1,24 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { bonuses, employees } from "@/db/schema";
+import { auditLog, bonuses, breaks, employees, timeEntries } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole } from "@/server/auth/rbac";
 import { appendAudit } from "@/server/domain/audit/writer";
-import { markPaid, paySummary, PayError } from "@/server/domain/pay/pay";
+import { entryAmountCents, markPaid, paySummary, PayError } from "@/server/domain/pay/pay";
+import { workedMinutes } from "@/server/domain/time/breaks";
 
 // Pay figures are manager+ (leads run the floor, they don't see rates).
 export const pay = new Hono<AppEnv>()
   .use(requireRole("manager"))
 
-  // Active people with pay tracking on, for the Pay screen picker.
+  // Active people with pay tracking on, for the Pay screen picker — with what
+  // each is owed all-time (unpaid closed time at the current rate + unpaid
+  // bonuses, as paySummary counts it) and the last payment note used.
   .get("/employees", async (c) => {
-    const rows = await getDb()
+    const db = getDb();
+    const rows = await db
       .select({
         id: employees.id,
         displayName: employees.displayName,
@@ -23,7 +27,39 @@ export const pay = new Hono<AppEnv>()
       .from(employees)
       .where(and(eq(employees.payTracking, true), eq(employees.active, true)))
       .orderBy(employees.displayName);
-    return c.json({ employees: rows });
+    const ids = rows.map((r) => r.id);
+    const unpaid = and(inArray(timeEntries.employeeId, ids), isNull(timeEntries.paidAt), isNotNull(timeEntries.clockOut));
+    const open = ids.length ? await db.select().from(timeEntries).where(unpaid) : [];
+    const openBreaks = open.length
+      ? await db.select({ b: breaks }).from(breaks).innerJoin(timeEntries, eq(breaks.timeEntryId, timeEntries.id)).where(unpaid)
+      : [];
+    const breaksOf = new Map<string, (typeof openBreaks)[number]["b"][]>();
+    for (const { b } of openBreaks) breaksOf.set(b.timeEntryId, [...(breaksOf.get(b.timeEntryId) ?? []), b]);
+    const liveBonuses = ids.length
+      ? await db
+          .select({ employeeId: bonuses.employeeId, amountCents: bonuses.amountCents })
+          .from(bonuses)
+          .where(and(inArray(bonuses.employeeId, ids), isNull(bonuses.paidAt), isNull(bonuses.voidedAt)))
+      : [];
+    const rate = new Map(rows.map((r) => [r.id, r.hourlyRateCents]));
+    const owed = new Map<string, number>();
+    for (const e of open) {
+      const r = rate.get(e.employeeId);
+      if (r == null) continue;
+      const amt = entryAmountCents(workedMinutes(e.clockIn, e.clockOut!, breaksOf.get(e.id) ?? []), r);
+      owed.set(e.employeeId, (owed.get(e.employeeId) ?? 0) + amt);
+    }
+    for (const b of liveBonuses) owed.set(b.employeeId, (owed.get(b.employeeId) ?? 0) + b.amountCents);
+    const [last] = await db
+      .select({ reason: auditLog.reason })
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "mark_paid"), isNotNull(auditLog.reason)))
+      .orderBy(desc(auditLog.id))
+      .limit(1);
+    return c.json({
+      employees: rows.map((r) => ({ ...r, unpaidCents: owed.get(r.id) ?? 0 })),
+      lastNote: last?.reason ?? null,
+    });
   })
 
   .get("/:employeeId", async (c) => {
