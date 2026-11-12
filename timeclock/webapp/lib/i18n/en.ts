@@ -349,6 +349,37 @@ const en = {
 
 
   // ==== batch2:LEAVE — add this area's keys directly below ====
+  "leave.typeAvailable": "{type} · {hours}h available",
+  "leave.oneDay": "1 day",
+  "leave.nDays": "{n} days",
+  "leave.leftAfter": "{hours}h left after this",
+  "leave.autoHoursHint": "Worked out from your usual {hours}h day. Change it if needed.",
+  "leave.endBeforeStart": "To must be on or after From.",
+  "leave.hoursPositive": "Hours must be more than 0.",
+  "leave.groupPending": "Pending",
+  "leave.groupUpcoming": "Upcoming",
+  "leave.groupPast": "Past",
+  "leave.yourNote": "Your note: {note}",
+  "leave.reviewerNote": "Manager's note: {note}",
+  "leave.withdraw": "Withdraw",
+  "leave.statusCancelled": "Withdrawn",
+  "toast.leaveWithdrawn": "Request withdrawn.",
+  "toast.insufficientBalancePending": "Only {available}h left once your pending requests ({pending}h) are counted.",
+  "error.insufficient_balance_pending": "Not enough balance once your pending requests are counted.",
+  "leaveApprove.title": "Leave requests",
+  "leaveApprove.none": "None pending.",
+  "leaveApprove.approve": "Approve",
+  "leaveApprove.decline": "Decline",
+  "leaveApprove.confirmDecline": "Decline request",
+  "leaveApprove.approveAll": "Approve all {n}",
+  "leaveApprove.balanceAfter": "{type} balance: {before}h → {after}h after approval",
+  "leaveApprove.alsoOff": "Also off: {names}",
+  "leaveApprove.nobodyOff": "Nobody else off",
+  "leaveApprove.rostered": "Rostered: {names}",
+  "leaveApprove.reasonPlaceholder": "Reason (sent to them, optional)",
+  "toast.leaveApproved": "Leave approved.",
+  "toast.leaveDeclined": "Leave declined.",
+  "toast.leaveApprovedAll": "Approved {n} requests.",
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====

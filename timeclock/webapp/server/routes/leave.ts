@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { leaveRequests, leaveLedger, employees } from "@/db/schema";
+import { leaveRequests, leaveLedger, employees, rosters } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole } from "@/server/auth/rbac";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { runAccrual, leaveBalances } from "@/server/domain/leave/accrual";
+import { notifyEmployee } from "@/server/integrations/notify/personal";
 
 const dateISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const LEDGER_TYPES = ["annual", "sick", "bereavement", "alt_holiday"] as const;
@@ -20,6 +21,24 @@ const requestSchema = z
     note: z.string().max(300).nullish(),
   })
   .refine((v) => v.endDate >= v.startDate, { message: "end_before_start" });
+
+/** Push the decision (and any reviewer note) to the requester's phone. */
+async function notifyLeaveDecision(
+  row: { employeeId: string; type: string; startDate: string; endDate: string; hours: string },
+  reviewerName: string,
+  decision: "approved" | "declined",
+  note: string | null,
+) {
+  const emp = await getDb().query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, row.employeeId) });
+  if (!emp) return;
+  const range = row.startDate === row.endDate ? row.startDate : `${row.startDate} to ${row.endDate}`;
+  await notifyEmployee(emp, {
+    title: `Time Clock: leave ${decision}`,
+    message:
+      `${reviewerName} ${decision} your ${row.type.replace("_", " ")} leave ${range} (${Number(row.hours)}h)` +
+      (note ? `: ${note}` : "."),
+  });
+}
 
 export const leave = new Hono<AppEnv>()
   .use(requireRole("employee"))
@@ -40,11 +59,29 @@ export const leave = new Hono<AppEnv>()
     const me = c.get("auth")!.employee;
 
     // Balance check for balance-tracked types (unpaid is always allowed).
+    // Pending requests of the same type count against it, so two pending
+    // requests can't overbook the balance between them.
     if (body.data.type !== "unpaid") {
-      const balances = await leaveBalances(me.id);
-      if ((balances[body.data.type] ?? 0) < body.data.hours) {
+      const balance = (await leaveBalances(me.id))[body.data.type] ?? 0;
+      const [p] = await getDb()
+        .select({ total: sql<string>`coalesce(sum(${leaveRequests.hours}), 0)` })
+        .from(leaveRequests)
+        .where(
+          and(
+            eq(leaveRequests.employeeId, me.id),
+            eq(leaveRequests.type, body.data.type),
+            eq(leaveRequests.status, "pending"),
+          ),
+        );
+      const pending = Number(p?.total ?? 0);
+      const available = Math.max(0, balance - pending);
+      if (available < body.data.hours) {
         return c.json(
-          { error: "insufficient_balance", available: balances[body.data.type] ?? 0 },
+          {
+            error: balance < body.data.hours ? "insufficient_balance" : "insufficient_balance_pending",
+            available,
+            pending,
+          },
           409,
         );
       }
@@ -72,14 +109,91 @@ export const leave = new Hono<AppEnv>()
     return c.json({ ok: true, requestId: row.id }, 201);
   })
 
+  // Withdraw your own request while it's still pending.
+  .post("/:id/cancel", async (c) => {
+    const id = c.req.param("id")!;
+    const me = c.get("auth")!.employee;
+    const db = getDb();
+    const row = await db.query.leaveRequests.findFirst({
+      where: (x, { eq: eq_, and: and_ }) =>
+        and_(eq_(x.id, id), eq_(x.employeeId, me.id), eq_(x.status, "pending")),
+    });
+    if (!row) return c.json({ error: "not_found_or_reviewed" }, 404);
+
+    await db
+      .update(leaveRequests)
+      .set({ status: "cancelled" })
+      .where(and(eq(leaveRequests.id, id), eq(leaveRequests.status, "pending")));
+    await appendAudit({
+      entityType: "leave_request",
+      entityId: id,
+      action: "cancel",
+      actorId: me.id,
+      oldValue: { status: "pending" },
+      newValue: { status: "cancelled" },
+    });
+    return c.json({ ok: true });
+  })
+
+  // Pending queue with decision context: balance before/after, who else is
+  // off (approved leave overlapping) and who is rostered on those days.
   .get("/pending", requireRole("lead"), async (c) => {
-    const rows = await getDb()
+    const db = getDb();
+    const rows = await db
       .select({ request: leaveRequests, employeeName: employees.displayName })
       .from(leaveRequests)
       .innerJoin(employees, eq(leaveRequests.employeeId, employees.id))
       .where(eq(leaveRequests.status, "pending"))
       .orderBy(leaveRequests.createdAt);
-    return c.json({ requests: rows.map((r) => ({ ...r.request, employeeName: r.employeeName })) });
+    if (rows.length === 0) return c.json({ requests: [] });
+
+    const from = rows.reduce((m, r) => (r.request.startDate < m ? r.request.startDate : m), rows[0].request.startDate);
+    const to = rows.reduce((m, r) => (r.request.endDate > m ? r.request.endDate : m), rows[0].request.endDate);
+    const approved = await db
+      .select({
+        employeeId: leaveRequests.employeeId,
+        employeeName: employees.displayName,
+        type: leaveRequests.type,
+        startDate: leaveRequests.startDate,
+        endDate: leaveRequests.endDate,
+      })
+      .from(leaveRequests)
+      .innerJoin(employees, eq(leaveRequests.employeeId, employees.id))
+      .where(
+        and(eq(leaveRequests.status, "approved"), lte(leaveRequests.startDate, to), gte(leaveRequests.endDate, from)),
+      );
+    const shifts = await db
+      .select({ employeeId: rosters.employeeId, employeeName: employees.displayName, shiftDate: rosters.shiftDate })
+      .from(rosters)
+      .innerJoin(employees, eq(rosters.employeeId, employees.id))
+      .where(and(eq(rosters.cancelled, false), gte(rosters.shiftDate, from), lte(rosters.shiftDate, to)));
+
+    const balances = new Map<string, Record<string, number>>();
+    for (const { request: r } of rows) {
+      if (!balances.has(r.employeeId)) balances.set(r.employeeId, await leaveBalances(r.employeeId));
+    }
+
+    return c.json({
+      requests: rows.map(({ request: r, employeeName }) => {
+        const balance = r.type === "unpaid" ? null : (balances.get(r.employeeId)?.[r.type] ?? 0);
+        return {
+          ...r,
+          employeeName,
+          balance,
+          balanceAfter: balance === null ? null : balance - Number(r.hours),
+          alsoOff: approved
+            .filter((a) => a.employeeId !== r.employeeId && a.startDate <= r.endDate && a.endDate >= r.startDate)
+            .map(({ employeeName: n, type, startDate, endDate }) => ({ employeeName: n, type, startDate, endDate })),
+          rostered: [
+            ...new Set(
+              shifts
+                .filter((s) => s.employeeId !== r.employeeId && s.shiftDate >= r.startDate && s.shiftDate <= r.endDate)
+                .map((s) => s.employeeName),
+            ),
+          ],
+        };
+      }),
+    });
   })
 
   .post("/:id/approve", requireRole("lead"), async (c) => {
@@ -114,6 +228,7 @@ export const leave = new Hono<AppEnv>()
       actorId: reviewer.id,
       newValue: { hours: row.hours, type: row.type },
     });
+    void notifyLeaveDecision(row, reviewer.displayName, "approved", null);
     return c.json({ ok: true });
   })
 
@@ -146,6 +261,7 @@ export const leave = new Hono<AppEnv>()
       actorId: reviewer.id,
       reason: body.data.note ?? null,
     });
+    void notifyLeaveDecision(row, reviewer.displayName, "declined", body.data.note ?? null);
     return c.json({ ok: true });
   })
 

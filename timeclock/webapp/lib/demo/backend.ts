@@ -71,8 +71,9 @@ interface DemoLeave {
   startDate: string;
   endDate: string;
   hours: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "cancelled";
   note: string | null;
+  reviewNote?: string | null;
 }
 
 interface DemoShift {
@@ -792,7 +793,7 @@ function handle(req: Req): { status: number; body: Json } {
       balances: { annual: 92.5, sick: 40, bereavement: 24, alt_holiday: 16 },
       requests: state.leave
         .filter((l) => l.employeeId === me().id || me().role !== "employee")
-        .map((l) => ({ id: l.id, type: l.type, startDate: l.startDate, endDate: l.endDate, hours: l.hours, status: l.status, note: l.note })),
+        .map((l) => ({ id: l.id, type: l.type, startDate: l.startDate, endDate: l.endDate, hours: l.hours, status: l.status, note: l.note, reviewNote: l.reviewNote ?? null })),
     });
   }
   if (seg === "/leave" && method === "POST") {
@@ -812,13 +813,45 @@ function handle(req: Req): { status: number; body: Json } {
     return ok({ ok: true, id: l.id });
   }
   if (seg === "/leave/pending") {
-    return ok({ requests: state.leave.filter((l) => l.status === "pending") });
+    const demoBalances: Record<string, number> = { annual: 92.5, sick: 40, bereavement: 24, alt_holiday: 16 };
+    return ok({
+      requests: state.leave
+        .filter((l) => l.status === "pending")
+        .map((l) => {
+          const balance = l.type === "unpaid" ? null : (demoBalances[l.type] ?? 0);
+          return {
+            ...l,
+            balance,
+            balanceAfter: balance === null ? null : balance - Number(l.hours),
+            alsoOff: state.leave
+              .filter((o) => o.status === "approved" && o.employeeId !== l.employeeId && o.startDate <= l.endDate && o.endDate >= l.startDate)
+              .map((o) => ({ employeeName: o.employeeName, type: o.type, startDate: o.startDate, endDate: o.endDate })),
+            rostered: [
+              ...new Set(
+                state.shifts
+                  .filter((s) => s.employeeId !== l.employeeId && s.shiftDate >= l.startDate && s.shiftDate <= l.endDate)
+                  .map((s) => empName(s.employeeId)),
+              ),
+            ],
+          };
+        }),
+    });
+  }
+  if (/^\/leave\/[^/]+\/cancel$/.test(seg) && method === "POST") {
+    const [, , id] = seg.split("/");
+    // Demo signs you in as admin and lists everyone's leave as "mine", so allow withdrawing any.
+    const l = state.leave.find((x) => x.id === id && x.status === "pending" && (x.employeeId === me().id || me().role !== "employee"));
+    if (!l) return ok({ error: "not_found_or_reviewed" }, 404);
+    l.status = "cancelled";
+    pushAudit({ entityType: "leave_request", entityId: id, action: "cancel", actorId: me().id, reason: null, oldValue: JSON.stringify({ status: "pending" }), newValue: JSON.stringify({ status: "cancelled" }) });
+    return ok({ ok: true });
   }
   if (/^\/leave\/[^/]+\/(approve|reject)$/.test(seg) && method === "POST") {
     const [, , id, action] = seg.split("/");
     const l = state.leave.find((x) => x.id === id);
     if (!l) return ok({ error: "not_found" }, 404);
     l.status = action === "approve" ? "approved" : "rejected";
+    if (action === "reject") l.reviewNote = (req.body?.note as string) ?? null;
     pushAudit({ entityType: "leave_request", entityId: id, action, actorId: me().id, reason: null, oldValue: null, newValue: JSON.stringify({ status: l.status }) });
     return ok({ ok: true });
   }

@@ -100,6 +100,34 @@ run("P7 leave + accrual (real Postgres)", () => {
     expect(body.balances.annual).toBeCloseTo(0.62 + 40 - 8, 1);
   });
 
+  it("pending requests count against the balance; withdrawing frees it", async () => {
+    const ask = () =>
+      app.request("/api/leave", {
+        method: "POST",
+        headers: jsonHeaders(w.employeeCookie),
+        body: JSON.stringify({ type: "annual", startDate: "2026-10-05", endDate: "2026-10-07", hours: 20 }),
+      });
+    const first = await ask();
+    expect(first.status).toBe(201);
+    const { requestId } = await first.json();
+
+    const second = await ask(); // 32.6h balance − 20h pending < 20h
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toBe("insufficient_balance_pending");
+
+    const pending = await app.request("/api/leave/pending", { headers: jsonHeaders(w.adminCookie) });
+    const [p] = (await pending.json()).requests;
+    expect(p.balance).toBeCloseTo(0.62 + 40 - 8, 1);
+    expect(p.balanceAfter).toBeCloseTo(0.62 + 40 - 8 - 20, 1);
+
+    const cancel = () =>
+      app.request(`/api/leave/${requestId}/cancel`, { method: "POST", headers: jsonHeaders(w.employeeCookie) });
+    expect((await cancel()).status).toBe(200);
+    expect((await cancel()).status).toBe(404); // no longer pending
+
+    expect((await ask()).status).toBe(201);
+  });
+
   it("unpaid leave skips balance checks entirely", async () => {
     const res = await app.request("/api/leave", {
       method: "POST",

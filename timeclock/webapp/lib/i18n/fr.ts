@@ -336,6 +336,37 @@ const fr: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch2:LEAVE — add this area's keys directly below ====
+  "leave.typeAvailable": "{type} · {hours} h disponibles",
+  "leave.oneDay": "1 jour",
+  "leave.nDays": "{n} jours",
+  "leave.leftAfter": "{hours} h restantes après",
+  "leave.autoHoursHint": "Calculé à partir de votre journée habituelle de {hours} h. Modifiez si besoin.",
+  "leave.endBeforeStart": "Au doit être le même jour que Du ou après.",
+  "leave.hoursPositive": "Les heures doivent être supérieures à 0.",
+  "leave.groupPending": "En attente",
+  "leave.groupUpcoming": "À venir",
+  "leave.groupPast": "Passées",
+  "leave.yourNote": "Votre note : {note}",
+  "leave.reviewerNote": "Note du responsable : {note}",
+  "leave.withdraw": "Retirer",
+  "leave.statusCancelled": "Retirée",
+  "toast.leaveWithdrawn": "Demande retirée.",
+  "toast.insufficientBalancePending": "Il ne reste que {available} h en comptant vos demandes en attente ({pending} h).",
+  "error.insufficient_balance_pending": "Solde insuffisant en comptant vos demandes en attente.",
+  "leaveApprove.title": "Demandes de congé",
+  "leaveApprove.none": "Aucune en attente.",
+  "leaveApprove.approve": "Approuver",
+  "leaveApprove.decline": "Refuser",
+  "leaveApprove.confirmDecline": "Refuser la demande",
+  "leaveApprove.approveAll": "Tout approuver ({n})",
+  "leaveApprove.balanceAfter": "Solde {type} : {before} h → {after} h après approbation",
+  "leaveApprove.alsoOff": "Aussi absents : {names}",
+  "leaveApprove.nobodyOff": "Personne d'autre absent",
+  "leaveApprove.rostered": "Planifiés : {names}",
+  "leaveApprove.reasonPlaceholder": "Motif (envoyé à la personne, facultatif)",
+  "toast.leaveApproved": "Congé approuvé.",
+  "toast.leaveDeclined": "Congé refusé.",
+  "toast.leaveApprovedAll": "{n} demandes approuvées.",
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====

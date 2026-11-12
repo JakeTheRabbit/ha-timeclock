@@ -343,6 +343,37 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch2:LEAVE — add this area's keys directly below ====
+  "leave.typeAvailable": "{type} · {hours} h kvar",
+  "leave.oneDay": "1 dag",
+  "leave.nDays": "{n} dagar",
+  "leave.leftAfter": "{hours} h kvar efter detta",
+  "leave.autoHoursHint": "Uträknat från din vanliga dag på {hours} h. Ändra vid behov.",
+  "leave.endBeforeStart": "Till måste vara samma dag som eller efter Från.",
+  "leave.hoursPositive": "Timmar måste vara mer än 0.",
+  "leave.groupPending": "Väntande",
+  "leave.groupUpcoming": "Kommande",
+  "leave.groupPast": "Tidigare",
+  "leave.yourNote": "Din anteckning: {note}",
+  "leave.reviewerNote": "Chefens anteckning: {note}",
+  "leave.withdraw": "Dra tillbaka",
+  "leave.statusCancelled": "Tillbakadragen",
+  "toast.leaveWithdrawn": "Ansökan tillbakadragen.",
+  "toast.insufficientBalancePending": "Bara {available} h kvar när dina väntande ansökningar ({pending} h) räknas in.",
+  "error.insufficient_balance_pending": "Inte tillräckligt saldo när dina väntande ansökningar räknas in.",
+  "leaveApprove.title": "Ledighetsansökningar",
+  "leaveApprove.none": "Inga väntande.",
+  "leaveApprove.approve": "Godkänn",
+  "leaveApprove.decline": "Avslå",
+  "leaveApprove.confirmDecline": "Avslå ansökan",
+  "leaveApprove.approveAll": "Godkänn alla {n}",
+  "leaveApprove.balanceAfter": "{type}-saldo: {before} h → {after} h efter godkännande",
+  "leaveApprove.alsoOff": "Också lediga: {names}",
+  "leaveApprove.nobodyOff": "Ingen annan ledig",
+  "leaveApprove.rostered": "Schemalagda: {names}",
+  "leaveApprove.reasonPlaceholder": "Anledning (skickas till dem, valfritt)",
+  "toast.leaveApproved": "Ledighet godkänd.",
+  "toast.leaveDeclined": "Ledighet avslagen.",
+  "toast.leaveApprovedAll": "{n} ansökningar godkända.",
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====
