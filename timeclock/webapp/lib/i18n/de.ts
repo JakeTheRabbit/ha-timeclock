@@ -433,5 +433,23 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
   "myHours.nextDay": "nächster Tag",
 
 
+  // ==== batch3:ROSTER_HOURS — add this area's keys directly below ====
+
+
+  // ==== batch3:KIOSK — add this area's keys directly below ====
+
+
+  // ==== batch3:INSIGHTS_AUDIT — add this area's keys directly below ====
+
+
+  // ==== batch3:ADMIN_EMPLOYEES_SETTINGS — add this area's keys directly below ====
+
+
+  // ==== batch3:ADMIN_SCREENS — add this area's keys directly below ====
+
+
+  // ==== batch3:STATUS_I18N — add this area's keys directly below ====
+
+
 };
 export default de;
