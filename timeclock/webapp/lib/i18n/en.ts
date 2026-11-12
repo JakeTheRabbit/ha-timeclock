@@ -345,6 +345,24 @@ const en = {
   "myHours.reason.wrongTime": "Wrong time recorded",
   "myHours.reason.mistake": "Clocked by mistake",
   "myHours.running": "running",
+  // ==== batch2:CLOCK_HOME — add this area's keys directly below ====
+
+
+  // ==== batch2:LEAVE — add this area's keys directly below ====
+
+
+  // ==== batch2:CORRECTIONS — add this area's keys directly below ====
+
+
+  // ==== batch2:REVIEW — add this area's keys directly below ====
+
+
+  // ==== batch2:PAY — add this area's keys directly below ====
+
+
+  // ==== batch2:BOARD_DEFAULTS — add this area's keys directly below ====
+
+
 } as const;
 
 export default en;

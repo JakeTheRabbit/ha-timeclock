@@ -332,5 +332,23 @@ const fr: Partial<Record<keyof typeof import("./en").en, string>> = {
   "error.period_not_finished": "Cette période de paie n'est pas encore terminée.",
   "error.photo_not_jpeg": "Impossible de lire la photo — réessayez.",
   "error.photo_too_large": "Photo trop volumineuse — réessayez.",
+  // ==== batch2:CLOCK_HOME — add this area's keys directly below ====
+
+
+  // ==== batch2:LEAVE — add this area's keys directly below ====
+
+
+  // ==== batch2:CORRECTIONS — add this area's keys directly below ====
+
+
+  // ==== batch2:REVIEW — add this area's keys directly below ====
+
+
+  // ==== batch2:PAY — add this area's keys directly below ====
+
+
+  // ==== batch2:BOARD_DEFAULTS — add this area's keys directly below ====
+
+
 };
 export default fr;
