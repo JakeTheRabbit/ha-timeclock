@@ -96,6 +96,12 @@ export const settingsSchema = z.object({
       requireDeviceBinding: z.boolean().default(false),
     })
     .default({}),
+  // Primary "Payroll export" on Pay periods uses this adapter id (csv|xero|ipayroll).
+  payroll: z
+    .object({
+      adapter: z.string().default("csv"),
+    })
+    .default({}),
   integration: z
     .object({
       // API key for the external clock API (dashboard card actions + Android

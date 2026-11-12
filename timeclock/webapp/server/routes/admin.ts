@@ -1,14 +1,14 @@
 import { Hono } from "hono";
-import { setCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { employees, devices, jobs } from "@/db/schema";
+import { employees, devices, jobs, auditLog } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole, ROLES } from "@/server/auth/rbac";
 import { hashPin } from "@/server/auth/pin";
-import { registerDevice, DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE } from "@/server/auth/device";
+import { registerDevice, hashDeviceToken, DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE } from "@/server/auth/device";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { getSettings, updateSettings } from "@/server/domain/settings";
 import {
@@ -257,7 +257,74 @@ export const admin = new Hono<AppEnv>()
       })
       .from(devices)
       .orderBy(devices.createdAt);
-    return c.json({ devices: rows });
+    // "Bound by" comes from the bind audit row (devices has no actor column).
+    const binds = rows.length
+      ? await getDb()
+          .select({ entityId: auditLog.entityId, actorName: employees.displayName })
+          .from(auditLog)
+          .leftJoin(employees, eq(auditLog.actorId, employees.id))
+          .where(
+            and(
+              eq(auditLog.entityType, "device"),
+              inArray(auditLog.action, ["bind", "auto_bind_first_device"]),
+            ),
+          )
+      : [];
+    const boundBy = new Map(binds.map((b) => [b.entityId, b.actorName]));
+    const cookie = getCookie(c, DEVICE_COOKIE);
+    const current = cookie
+      ? ((
+          await getDb()
+            .select({ id: devices.id })
+            .from(devices)
+            .where(eq(devices.tokenHash, hashDeviceToken(cookie)))
+            .limit(1)
+        )[0]?.id ?? null)
+      : null;
+    return c.json({
+      devices: rows.map((d) => ({ ...d, boundBy: boundBy.get(d.id) ?? null })),
+      currentDeviceId: current,
+    });
+  })
+
+  .patch("/devices/:id", async (c) => {
+    const id = c.req.param("id");
+    const body = bindDeviceSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "bad_request" }, 400);
+    const actor = c.get("auth")!;
+    const db = getDb();
+    const before = await db.query.devices.findFirst({ where: (d, { eq: eq_ }) => eq_(d.id, id) });
+    if (!before) return c.json({ error: "not_found" }, 404);
+    await db.update(devices).set({ name: body.data.name }).where(eq(devices.id, id));
+    await appendAudit({
+      entityType: "device",
+      entityId: id,
+      action: "rename",
+      actorId: actor.employee.id,
+      oldValue: { name: before.name },
+      newValue: { name: body.data.name },
+    });
+    return c.json({ ok: true });
+  })
+
+  // Revoke = deactivate: the kiosk's cookie stops working; the row stays for the audit trail.
+  .post("/devices/:id/revoke", async (c) => {
+    const id = c.req.param("id");
+    const actor = c.get("auth")!;
+    const db = getDb();
+    const before = await db.query.devices.findFirst({ where: (d, { eq: eq_ }) => eq_(d.id, id) });
+    if (!before) return c.json({ error: "not_found" }, 404);
+    if (!before.active) return c.json({ ok: true });
+    await db.update(devices).set({ active: false }).where(eq(devices.id, id));
+    await appendAudit({
+      entityType: "device",
+      entityId: id,
+      action: "revoke",
+      actorId: actor.employee.id,
+      oldValue: { active: true, name: before.name },
+      newValue: { active: false },
+    });
+    return c.json({ ok: true });
   })
 
   // Bind THIS browser/tablet as a kiosk device (admin walks to the kiosk).

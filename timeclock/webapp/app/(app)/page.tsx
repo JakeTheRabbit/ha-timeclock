@@ -10,10 +10,13 @@ import {
   KeyRound,
   LogIn,
   LogOut,
+  MonitorSmartphone,
+  Scale,
   Settings2,
   Timer,
   TreePalm,
   TriangleAlert,
+  UserRound,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -21,7 +24,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost } from "@/lib/api-client";
 import { apiErrorCode, apiErrorText } from "@/lib/api-errors";
@@ -42,7 +45,6 @@ import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/use-session";
 import { roleAtLeast } from "@/server/auth/rbac";
 import { useT } from "@/lib/i18n";
-import { ThemeControls } from "@/components/theme/theme-controls";
 
 interface Whoami {
   ha: { haUserId: string; displayName: string | null } | null;
@@ -284,12 +286,26 @@ export default function Home() {
             label={t("home.leave.label")}
             description={t("home.leave.description")}
           />
+          <Tile
+            href="/me"
+            icon={UserRound}
+            label={t("home.profile.label")}
+            description={t("home.profile.description")}
+          />
           {roleAtLeast(role, "lead") && (
             <Tile
               href="/manager"
               icon={Users}
               label={t("home.manager.label")}
               description={t("home.manager.description")}
+            />
+          )}
+          {roleAtLeast(role, "manager") && (
+            <Tile
+              href="/manager/leave-balances"
+              icon={Scale}
+              label={t("home.leaveBalances.label")}
+              description={t("home.leaveBalances.description")}
             />
           )}
           {roleAtLeast(role, "admin") && (
@@ -312,21 +328,16 @@ export default function Home() {
                 label={t("home.settings.label")}
                 description={t("home.settings.description")}
               />
+              <Tile
+                href="/admin/devices"
+                icon={MonitorSmartphone}
+                label={t("home.devices.label")}
+                description={t("home.devices.description")}
+              />
             </>
           )}
         </nav>
       ) : null}
-
-      {session && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("theme.title")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ThemeControls />
-          </CardContent>
-        </Card>
-      )}
 
       {!session && !isLoading ? (
         <Card>

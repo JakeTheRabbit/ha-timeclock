@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { leaveRequests, leaveLedger, employees, rosters } from "@/db/schema";
+import { leaveRequests, leaveLedger, leaveAccrualMarks, employees, rosters } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole } from "@/server/auth/rbac";
 import { appendAudit } from "@/server/domain/audit/writer";
-import { runAccrual, leaveBalances } from "@/server/domain/leave/accrual";
+import { runAccrual, leaveBalances, ANNUAL_ACCRUAL_RATE } from "@/server/domain/leave/accrual";
 import { notifyEmployee } from "@/server/integrations/notify/personal";
 
 const dateISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -263,6 +263,67 @@ export const leave = new Hono<AppEnv>()
     });
     void notifyLeaveDecision(row, reviewer.displayName, "declined", body.data.note ?? null);
     return c.json({ ok: true });
+  })
+
+  // Everyone's balances per ledger type, with pending hours and the accrual
+  // bookmark — the Leave balances screen.
+  .get("/balances", requireRole("manager"), async (c) => {
+    const db = getDb();
+    const [staff, sums, pending, marks] = await Promise.all([
+      db
+        .select({ id: employees.id, displayName: employees.displayName })
+        .from(employees)
+        .where(eq(employees.active, true))
+        .orderBy(employees.displayName),
+      db
+        .select({
+          employeeId: leaveLedger.employeeId,
+          type: leaveLedger.type,
+          total: sql<string>`coalesce(sum(${leaveLedger.deltaHours}), 0)`,
+        })
+        .from(leaveLedger)
+        .groupBy(leaveLedger.employeeId, leaveLedger.type),
+      db
+        .select({
+          employeeId: leaveRequests.employeeId,
+          type: leaveRequests.type,
+          total: sql<string>`coalesce(sum(${leaveRequests.hours}), 0)`,
+        })
+        .from(leaveRequests)
+        .where(eq(leaveRequests.status, "pending"))
+        .groupBy(leaveRequests.employeeId, leaveRequests.type),
+      db.select().from(leaveAccrualMarks),
+    ]);
+    const zero = () => Object.fromEntries(LEDGER_TYPES.map((t) => [t, 0])) as Record<string, number>;
+    return c.json({
+      types: LEDGER_TYPES,
+      annualAccrualRate: ANNUAL_ACCRUAL_RATE,
+      employees: staff.map((e) => {
+        const balances = zero();
+        const pend = zero();
+        for (const s of sums) if (s.employeeId === e.id) balances[s.type] = Number(s.total);
+        for (const p of pending) if (p.employeeId === e.id && p.type in pend) pend[p.type] = Number(p.total);
+        return {
+          ...e,
+          balances,
+          pending: pend,
+          accruedThrough: marks.find((m) => m.employeeId === e.id)?.accruedThrough ?? null,
+        };
+      }),
+    });
+  })
+
+  // One person's ledger history (newest first) for the balances screen.
+  .get("/ledger/:employeeId", requireRole("manager"), async (c) => {
+    const id = z.string().uuid().safeParse(c.req.param("employeeId"));
+    if (!id.success) return c.json({ error: "bad_request" }, 400);
+    const rows = await getDb()
+      .select()
+      .from(leaveLedger)
+      .where(eq(leaveLedger.employeeId, id.data))
+      .orderBy(desc(leaveLedger.createdAt))
+      .limit(50);
+    return c.json({ entries: rows });
   })
 
   // Run the accrual engine now (manager+; also cron-callable in P10).

@@ -37,6 +37,7 @@ const ROUTE_TITLES: Record<string, MessageKey> = {
   "/my-hours": "route.myHours",
   "/roster": "route.roster",
   "/leave": "route.leave",
+  "/me": "route.me",
   "/manager": "route.manager",
   "/manager/audit": "route.managerAudit",
   "/manager/pay-periods": "route.managerPayPeriods",
@@ -98,7 +99,9 @@ export interface AppShellProps {
 }
 
 export function AppShell({ children, title, variant = "default" }: AppShellProps) {
-  const pathname = usePathname() ?? "/";
+  // trailingSlash: true makes a hard load report "/me/" — strip it so titles,
+  // back targets and active tabs match.
+  const pathname = (usePathname() ?? "/").replace(/(.)\/$/, "$1");
   const router = useRouter();
   const queryClient = useQueryClient();
   const { employee } = useSession();
@@ -180,11 +183,17 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
           </h1>
           {employee && (
             <div className="flex shrink-0 items-center gap-2 pr-1">
-              <Avatar employeeId={employee.id} name={employee.displayName} size="sm" />
-              <span className="max-w-28 truncate text-sm text-muted-foreground">
+              <Link
+                href="/me"
+                aria-label={t("route.me")}
+                className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <Avatar employeeId={employee.id} name={employee.displayName} size="sm" />
+              </Link>
+              <span className="hidden max-w-28 truncate text-sm text-muted-foreground sm:inline">
                 {employee.displayName}
               </span>
-              <Badge variant="secondary" className="capitalize">
+              <Badge variant="secondary" className="hidden capitalize sm:inline-flex">
                 {employee.role}
               </Badge>
               <Button
