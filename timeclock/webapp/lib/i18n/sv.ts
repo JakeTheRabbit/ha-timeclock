@@ -339,6 +339,25 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
   "error.period_not_finished": "Löneperioden är inte slut än.",
   "error.photo_not_jpeg": "Fotot kunde inte läsas — försök igen.",
   "error.photo_too_large": "Fotot är för stort — försök igen.",
+  // ==== batch2:CLOCK_HOME — add this area's keys directly below ====
+
+
+  // ==== batch2:LEAVE — add this area's keys directly below ====
+
+
+  // ==== batch2:CORRECTIONS — add this area's keys directly below ====
+
+
+  // ==== batch2:REVIEW — add this area's keys directly below ====
+
+
+  // ==== batch2:PAY — add this area's keys directly below ====
+
+
+  // ==== batch2:BOARD_DEFAULTS — add this area's keys directly below ====
+  "myHours.nextDay": "nästa dag",
+
+
 };
 
 export default sv;

@@ -11,9 +11,13 @@ import {
   EditEntryDialog,
   Textarea,
   errMsg,
+  daysBetween,
   localDay,
+  recentWindow,
   suggestMissingDay,
+  typicalForDay,
   typicalFrom,
+  useHolidayDays,
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
 import { HourDots, liveMinutes, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
@@ -158,8 +162,47 @@ export default function MyHoursPage() {
     qc.invalidateQueries({ queryKey: ["my-disputes"] });
   };
 
+  // Smart defaults learn from the last 28 days, skip leave + public holidays,
+  // and use the rostered shift on a day that has one.
+  const recentWin = useMemo(() => recentWindow(), []);
+  const recent = useQuery({
+    queryKey: ["my-hours", "recent", recentWin.from.toISOString()],
+    queryFn: () =>
+      apiGet<{ entries: EntryRow[] }>(
+        `/entries/mine?from=${recentWin.from.toISOString()}&to=${new Date().toISOString()}`,
+      ),
+    enabled: !!session,
+  });
+  const myLeave = useQuery({
+    queryKey: ["leave-mine"],
+    queryFn: () =>
+      apiGet<{ requests: { startDate: string; endDate: string; status: string }[] }>("/leave/mine"),
+    enabled: !!session,
+  });
+  const roster = useQuery({
+    queryKey: ["my-roster", localDay(from)],
+    queryFn: () =>
+      apiGet<{ shifts: { shiftDate: string; startMin: number; endMin: number }[] }>(
+        `/roster/mine?from=${localDay(from)}&to=${localDay(to)}`,
+      ),
+    enabled: !!session,
+  });
+  const holidayDays = useHolidayDays(!!session);
+
   const entries = useMemo(() => list.data?.entries ?? [], [list.data]);
-  const typical = useMemo(() => typicalFrom(entries), [entries]);
+  const recentEntries = useMemo(() => recent.data?.entries ?? entries, [recent.data, entries]);
+  const typical = useMemo(() => typicalFrom(recentEntries), [recentEntries]);
+  const skipDays = useMemo(
+    () =>
+      new Set([
+        ...holidayDays,
+        ...(myLeave.data?.requests ?? [])
+          .filter((r) => r.status === "approved")
+          .flatMap((r) => daysBetween(r.startDate, r.endDate)),
+      ]),
+    [holidayDays, myLeave.data],
+  );
+  const shiftOn = (day: string) => roster.data?.shifts.find((s) => s.shiftDate === day);
 
   // Group by facility day, newest first; entries inside a day oldest first.
   const days = useMemo(() => {
@@ -244,7 +287,7 @@ export default function MyHoursPage() {
         <Button
           className="min-h-11"
           onClick={() => {
-            const day = suggestMissingDay(entries, typical);
+            const day = suggestMissingDay(recentEntries, typical, skipDays);
             setSelected(day);
             setEditing({ day, addNew: true });
           }}
@@ -339,7 +382,7 @@ export default function MyHoursPage() {
           focusId={editing.focusId}
           addNew={editing.addNew}
           defaultDay={editing.day}
-          typical={typical}
+          typical={typicalForDay(typical, shiftOn(editing.day))}
           mode="self"
           onClose={() => setEditing(null)}
           onDone={() => {
