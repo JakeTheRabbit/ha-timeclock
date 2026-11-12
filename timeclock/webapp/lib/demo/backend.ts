@@ -119,6 +119,8 @@ interface DemoState {
   auditSeq: number;
   approvals: { employeeId: string; day: string; by: string; at: string }[];
   mods: DemoMod[];
+  devices: { id: string; name: string; active: boolean; createdAt: string; lastSeenAt: string | null; boundBy: string | null }[];
+  ledger: { id: string; employeeId: string; type: string; deltaHours: string; source: string; note: string | null; createdAt: string }[];
 }
 
 interface DemoMod {
@@ -358,6 +360,14 @@ function seed(): DemoState {
     auditSeq: 1,
     approvals: [],
     mods: [],
+    devices: [
+      { id: uuid(9000), name: "Front door kiosk", active: true, createdAt: iso(daysAgo(30)), lastSeenAt: iso(daysAgo(0)), boundBy: employees[0].displayName },
+    ],
+    // Opening balances so the Leave balances screen has something to show.
+    ledger: employees.flatMap((e, i) => [
+      { id: uuid(9100 + i), employeeId: e.id, type: "annual", deltaHours: (40 + i * 12.5).toFixed(2), source: "adjustment", note: "Opening balance", createdAt: iso(daysAgo(30)) },
+      { id: uuid(9200 + i), employeeId: e.id, type: "sick", deltaHours: "80.00", source: "adjustment", note: "Opening balance", createdAt: iso(daysAgo(30)) },
+    ]),
     settings: {
       locale: { country: "NZ", language: "en", bcp47: "en-NZ", currency: "NZD", weekStart: 1, holidayRegion: "", holidayPayMultiplier: 1 },
       overtime: { dailyThresholdMin: 480, weeklyThresholdMin: 2400, multiplier1: 1.5, multiplier2: 2, daily2ThresholdMin: null },
@@ -367,6 +377,7 @@ function seed(): DemoState {
       autoClockout: { enabled: true, maxShiftHours: 14 },
       notifications: { haNotifyEnabled: true, haNotifyService: "notify.notify", smtp: { enabled: false, host: "", port: 587, user: "", from: "" } },
       kiosk: { requireDeviceBinding: false },
+      payroll: { adapter: "csv" },
       integration: { apiKey: "demo0000api0000key" },
       presence: { enabled: false, pollSec: 60, arriveGraceSec: 120, departGraceSec: 300, ssid: "", notifyOnArrive: true, notifyOnDepart: true },
       antifraud: { geofence: { enabled: false, lat: -36.8485, lng: 174.7633, radiusM: 250, enforce: false }, ipAllowlist: [], ipEnforce: false, photoOnPunch: false },
@@ -566,6 +577,18 @@ function handle(req: Req): { status: number; body: Json } {
   if (seg === "/auth/logout" && method === "POST") {
     // In demo, "sign out" drops to the not-signed-in view by clearing session.
     state.sessionEmployeeId = "";
+    return ok({ ok: true });
+  }
+  if (seg === "/auth/me" && method === "GET") return ok({ hasPin: me().pin != null, notifyService: me().notifyService });
+  if (seg === "/auth/me" && method === "PATCH") {
+    me().notifyService = (req.body?.notifyService as string) || null;
+    return ok({ ok: true });
+  }
+  if (seg === "/auth/pin/change" && method === "POST") {
+    const m = me();
+    if (m.pin != null && req.body?.currentPin !== m.pin) return ok({ error: "invalid_credentials" }, 401);
+    m.pin = String(req.body?.newPin ?? "");
+    pushAudit({ entityType: "employee", entityId: m.id, action: "pin_change", actorId: m.id, reason: null, oldValue: null, newValue: JSON.stringify({ hadPin: true }) });
     return ok({ ok: true });
   }
 
@@ -887,6 +910,52 @@ function handle(req: Req): { status: number; body: Json } {
     state.leave.unshift(l);
     pushAudit({ entityType: "leave_request", entityId: l.id, action: "request", actorId: me().id, reason: null, oldValue: null, newValue: JSON.stringify({ type: l.type, hours: l.hours }) });
     return ok({ ok: true, id: l.id });
+  }
+  if (seg === "/leave/balances") {
+    const types = ["annual", "sick", "bereavement", "alt_holiday"];
+    return ok({
+      types,
+      annualAccrualRate: 4 / 52,
+      employees: state.employees
+        .filter((e) => e.active)
+        .map((e) => {
+          const sum = (rows: { type: string; h: number }[]) =>
+            Object.fromEntries(types.map((t) => [t, rows.filter((r) => r.type === t).reduce((s, r) => s + r.h, 0)]));
+          return {
+            id: e.id,
+            displayName: e.displayName,
+            balances: sum(state.ledger.filter((r) => r.employeeId === e.id).map((r) => ({ type: r.type, h: Number(r.deltaHours) }))),
+            pending: sum(state.leave.filter((l) => l.employeeId === e.id && l.status === "pending").map((l) => ({ type: l.type, h: Number(l.hours) }))),
+            accruedThrough: iso(daysAgo(3)),
+          };
+        }),
+    });
+  }
+  if (seg.startsWith("/leave/ledger/")) {
+    const id = seg.split("/")[3];
+    return ok({ entries: state.ledger.filter((r) => r.employeeId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+  }
+  if (seg === "/leave/adjust" && method === "POST") {
+    const b = req.body ?? {};
+    state.ledger.push({ id: nid("ledger"), employeeId: String(b.employeeId), type: String(b.type), deltaHours: Number(b.deltaHours).toFixed(2), source: "adjustment", note: String(b.note ?? ""), createdAt: iso(new Date()) });
+    pushAudit({ entityType: "leave_ledger", entityId: String(b.employeeId), action: "adjust", actorId: me().id, reason: String(b.note ?? ""), oldValue: null, newValue: JSON.stringify({ type: b.type, deltaHours: b.deltaHours }) });
+    return ok({ ok: true });
+  }
+  if (seg === "/leave/accrue" && method === "POST") return ok({ ok: true, results: [] });
+  if (seg === "/reports/adapters") {
+    const configured = ((state.settings.payroll as Json | undefined)?.adapter as string | undefined) ?? "csv";
+    return ok({
+      adapters: [
+        { id: "csv", label: "CSV", implemented: true },
+        { id: "xero", label: "Xero", implemented: false },
+        { id: "ipayroll", label: "iPayroll", implemented: false },
+      ],
+      configured,
+    });
+  }
+  if (seg === "/reports/last-export") {
+    const row = state.audit.find((a) => a.entityType === "pay_period" && a.action === "export" && a.entityId === req.query.get("periodId"));
+    return ok({ lastExport: row ? { at: row.createdAt, by: empName(row.actorId ?? ""), format: (JSON.parse(row.newValue ?? "{}") as Json).format as string } : null });
   }
   if (seg === "/leave/pending") {
     const demoBalances: Record<string, number> = { annual: 92.5, sick: 40, bereavement: 24, alt_holiday: 16 };
@@ -1264,7 +1333,25 @@ function handle(req: Req): { status: number; body: Json } {
     return ok({ ok: true });
   }
   if (seg === "/admin/ha-entities") return ok({ available: false, presence: [], notify: [] });
-  if (seg === "/admin/devices/bind" && method === "POST") return ok({ device: { id: uuid(9999), name: String(req.body?.name ?? "Kiosk") } }, 201);
+  if (seg === "/admin/devices/bind" && method === "POST") {
+    const dev = { id: nid("device"), name: String(req.body?.name ?? "Kiosk"), active: true, createdAt: iso(new Date()), lastSeenAt: null, boundBy: me().displayName };
+    state.devices.push(dev);
+    return ok({ device: { id: dev.id, name: dev.name } }, 201);
+  }
+  if (seg === "/admin/devices" && method === "GET") return ok({ devices: state.devices, currentDeviceId: null });
+  if (/^\/admin\/devices\/[^/]+$/.test(seg) && method === "PATCH") {
+    const dev = state.devices.find((x) => x.id === seg.split("/")[3]);
+    if (!dev) return ok({ error: "not_found" }, 404);
+    dev.name = String(req.body?.name ?? dev.name);
+    return ok({ ok: true });
+  }
+  if (/^\/admin\/devices\/[^/]+\/revoke$/.test(seg) && method === "POST") {
+    const dev = state.devices.find((x) => x.id === seg.split("/")[3]);
+    if (!dev) return ok({ error: "not_found" }, 404);
+    dev.active = false;
+    return ok({ ok: true });
+  }
+  if (seg === "/admin/notify/test" && method === "POST") return ok({ sent: ["ha_notify"], failed: [] });
   if (seg === "/admin/settings" && method === "GET") return ok({ settings: state.settings });
   if (seg === "/admin/settings" && method === "PATCH") {
     const next = deepMerge(state.settings, req.body ?? {}) as Json;

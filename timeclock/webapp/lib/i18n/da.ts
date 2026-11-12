@@ -461,6 +461,31 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ADMIN_SCREENS — add this area's keys directly below ====
+  "route.me": "Profil",
+  "home.profile.label": "Profil",
+  "home.profile.description": "PIN, sprog, udseende",
+  "home.devices.label": "Enheder",
+  "home.devices.description": "Kiosker og testbeskeder",
+  "home.leaveBalances.label": "Feriesaldi",
+  "home.leaveBalances.description": "Saldi, optjening, justering",
+  "me.pin.title": "PIN",
+  "me.pin.hint": "Din PIN logger dig ind på kiosken.",
+  "me.pin.current": "Nuværende PIN",
+  "me.pin.new": "Ny PIN",
+  "me.pin.confirm": "Gentag ny PIN",
+  "me.pin.change": "Skift PIN",
+  "me.pin.set": "Opret PIN",
+  "me.pin.format": "4 til 12 cifre.",
+  "me.pin.mismatch": "De nye PIN-koder er ikke ens.",
+  "me.pin.same": "Det er din nuværende PIN.",
+  "me.pin.changed": "PIN skiftet.",
+  "me.lang.title": "Sprog",
+  "me.lang.hint": "Gemt på denne enhed.",
+  "me.lang.default": "Standard for stedet",
+  "me.notify.title": "Telefonbeskeder",
+  "me.notify.hint": "Din Home Assistant notify-tjeneste, f.eks. notify.mobile_app_pixel_8. Svar på ferie og rettelser samt stempelpåmindelser sendes hertil.",
+  "me.notify.saved": "Beskeder gemt.",
+  "me.notify.invalid": "Brug formatet notify.tjenestenavn.",
 
 
   // ==== batch3:STATUS_I18N — add this area's keys directly below ====

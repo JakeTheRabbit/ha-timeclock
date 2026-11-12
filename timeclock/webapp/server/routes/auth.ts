@@ -5,7 +5,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { employees, timeEntries } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
-import { verifyPin, pinRateCheck, pinRateFail, pinRateReset } from "@/server/auth/pin";
+import { hashPin, verifyPin, pinRateCheck, pinRateFail, pinRateReset } from "@/server/auth/pin";
+import { requireRole } from "@/server/auth/rbac";
 import { findEmployeeForHaIdentity } from "@/server/auth/employee-link";
 import {
   createSession,
@@ -26,6 +27,19 @@ import { getSettings } from "@/server/domain/settings";
 const pinLoginSchema = z.object({
   employeeId: z.string().uuid(),
   pin: z.string().min(4).max(12),
+});
+
+const pinChangeSchema = z.object({
+  // Optional only when the person has no PIN yet (first-time set).
+  currentPin: z.string().min(4).max(12).optional(),
+  newPin: z.string().regex(/^\d{4,12}$/),
+});
+
+const profileSchema = z.object({
+  // "" clears -> NULL. Must look like an HA notify service.
+  notifyService: z
+    .union([z.literal(""), z.string().regex(/^notify\.[a-z0-9_]+$/), z.null()])
+    .transform((v) => (v === "" ? null : v)),
 });
 
 // Set on explicit sign-out so HA SSO doesn't immediately log the same person
@@ -234,6 +248,69 @@ export const auth = new Hono<AppEnv>()
       ok: true,
       employee: { id: employee.id, displayName: employee.displayName, role: employee.role },
     });
+  })
+
+  // ---- Own profile (/me) ----
+
+  .get("/me", requireRole("employee"), async (c) => {
+    const me = c.get("auth")!.employee;
+    const row = await getDb().query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, me.id) });
+    if (!row) return c.json({ error: "not_found" }, 404);
+    return c.json({ hasPin: row.pinHash != null, notifyService: row.notifyService });
+  })
+
+  .patch("/me", requireRole("employee"), async (c) => {
+    const body = profileSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "bad_request" }, 400);
+    const me = c.get("auth")!.employee;
+    const db = getDb();
+    const before = await db.query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, me.id) });
+    if (!before) return c.json({ error: "not_found" }, 404);
+    await db.update(employees).set({ notifyService: body.data.notifyService }).where(eq(employees.id, me.id));
+    await appendAudit({
+      entityType: "employee",
+      entityId: me.id,
+      action: "self_update",
+      actorId: me.id,
+      oldValue: { notifyService: before.notifyService },
+      newValue: { notifyService: body.data.notifyService },
+    });
+    return c.json({ ok: true });
+  })
+
+  // Change your own PIN: current PIN required (unless none is set yet).
+  // Shares the PIN-login limiter shape (5 fails -> 60s lockout) on its own key.
+  .post("/pin/change", requireRole("employee"), async (c) => {
+    const body = pinChangeSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "bad_request" }, 400);
+    const me = c.get("auth")!.employee;
+    const db = getDb();
+
+    const rateKey = `pin-change:${me.id}`;
+    const rate = pinRateCheck(rateKey);
+    if (!rate.allowed) return c.json({ error: "rate_limited", retryInMs: rate.retryInMs }, 429);
+
+    const row = await db.query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, me.id) });
+    if (!row) return c.json({ error: "not_found" }, 404);
+    if (row.pinHash) {
+      if (!body.data.currentPin || !verifyPin(body.data.currentPin, row.pinHash)) {
+        pinRateFail(rateKey);
+        return c.json({ error: "invalid_credentials" }, 401);
+      }
+    }
+    pinRateReset(rateKey);
+
+    await db.update(employees).set({ pinHash: hashPin(body.data.newPin) }).where(eq(employees.id, me.id));
+    // The PIN itself never enters the audit payload — only the fact of change.
+    await appendAudit({
+      entityType: "employee",
+      entityId: me.id,
+      action: "pin_change",
+      actorId: me.id,
+      oldValue: { hadPin: row.pinHash != null },
+      newValue: { hadPin: true },
+    });
+    return c.json({ ok: true });
   })
 
   .post("/logout", async (c) => {

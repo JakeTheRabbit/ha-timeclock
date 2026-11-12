@@ -474,6 +474,31 @@ const en = {
 
 
   // ==== batch3:ADMIN_SCREENS — add this area's keys directly below ====
+  "route.me": "Profile",
+  "home.profile.label": "Profile",
+  "home.profile.description": "PIN, language, appearance",
+  "home.devices.label": "Devices",
+  "home.devices.description": "Kiosks and test alerts",
+  "home.leaveBalances.label": "Leave balances",
+  "home.leaveBalances.description": "Balances, accrual, adjust",
+  "me.pin.title": "PIN",
+  "me.pin.hint": "Your PIN signs you in on the kiosk.",
+  "me.pin.current": "Current PIN",
+  "me.pin.new": "New PIN",
+  "me.pin.confirm": "Repeat new PIN",
+  "me.pin.change": "Change PIN",
+  "me.pin.set": "Set PIN",
+  "me.pin.format": "4 to 12 digits.",
+  "me.pin.mismatch": "The new PINs don't match.",
+  "me.pin.same": "That's your current PIN.",
+  "me.pin.changed": "PIN changed.",
+  "me.lang.title": "Language",
+  "me.lang.hint": "Saved on this device.",
+  "me.lang.default": "Site default",
+  "me.notify.title": "Phone notifications",
+  "me.notify.hint": "Your Home Assistant notify service, e.g. notify.mobile_app_pixel_8. Leave and correction decisions and clock reminders go here.",
+  "me.notify.saved": "Notifications saved.",
+  "me.notify.invalid": "Use the form notify.service_name.",
 
 
   // ==== batch3:STATUS_I18N — add this area's keys directly below ====

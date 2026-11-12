@@ -473,6 +473,31 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ADMIN_SCREENS — add this area's keys directly below ====
+  "route.me": "Profil",
+  "home.profile.label": "Profil",
+  "home.profile.description": "PIN, Sprache, Darstellung",
+  "home.devices.label": "Geräte",
+  "home.devices.description": "Kiosks und Testmeldungen",
+  "home.leaveBalances.label": "Urlaubskonten",
+  "home.leaveBalances.description": "Salden, Ansammlung, Korrektur",
+  "me.pin.title": "PIN",
+  "me.pin.hint": "Mit deiner PIN meldest du dich am Kiosk an.",
+  "me.pin.current": "Aktuelle PIN",
+  "me.pin.new": "Neue PIN",
+  "me.pin.confirm": "Neue PIN wiederholen",
+  "me.pin.change": "PIN ändern",
+  "me.pin.set": "PIN festlegen",
+  "me.pin.format": "4 bis 12 Ziffern.",
+  "me.pin.mismatch": "Die neuen PINs stimmen nicht überein.",
+  "me.pin.same": "Das ist deine aktuelle PIN.",
+  "me.pin.changed": "PIN geändert.",
+  "me.lang.title": "Sprache",
+  "me.lang.hint": "Auf diesem Gerät gespeichert.",
+  "me.lang.default": "Standard des Standorts",
+  "me.notify.title": "Benachrichtigungen aufs Handy",
+  "me.notify.hint": "Dein Home Assistant Notify-Dienst, z. B. notify.mobile_app_pixel_8. Entscheidungen zu Urlaub und Korrekturen sowie Stempel-Erinnerungen kommen hierher.",
+  "me.notify.saved": "Benachrichtigungen gespeichert.",
+  "me.notify.invalid": "Format: notify.dienstname.",
 
 
   // ==== batch3:STATUS_I18N — add this area's keys directly below ====

@@ -468,6 +468,31 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ADMIN_SCREENS — add this area's keys directly below ====
+  "route.me": "Profil",
+  "home.profile.label": "Profil",
+  "home.profile.description": "PIN, språk, utseende",
+  "home.devices.label": "Enheter",
+  "home.devices.description": "Kiosker och testaviseringar",
+  "home.leaveBalances.label": "Semestersaldon",
+  "home.leaveBalances.description": "Saldon, intjäning, justering",
+  "me.pin.title": "PIN",
+  "me.pin.hint": "Din PIN loggar in dig på kiosken.",
+  "me.pin.current": "Nuvarande PIN",
+  "me.pin.new": "Ny PIN",
+  "me.pin.confirm": "Upprepa ny PIN",
+  "me.pin.change": "Byt PIN",
+  "me.pin.set": "Skapa PIN",
+  "me.pin.format": "4 till 12 siffror.",
+  "me.pin.mismatch": "De nya PIN-koderna matchar inte.",
+  "me.pin.same": "Det är din nuvarande PIN.",
+  "me.pin.changed": "PIN bytt.",
+  "me.lang.title": "Språk",
+  "me.lang.hint": "Sparat på den här enheten.",
+  "me.lang.default": "Platsens standard",
+  "me.notify.title": "Aviseringar till telefonen",
+  "me.notify.hint": "Din Home Assistant notify-tjänst, t.ex. notify.mobile_app_pixel_8. Beslut om ledighet och korrigeringar samt stämpelpåminnelser skickas hit.",
+  "me.notify.saved": "Aviseringar sparade.",
+  "me.notify.invalid": "Använd formatet notify.tjanstnamn.",
 
 
   // ==== batch3:STATUS_I18N — add this area's keys directly below ====

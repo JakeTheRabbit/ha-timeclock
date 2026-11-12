@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
-  Download,
   Lock,
   LockKeyhole,
   LockOpen,
@@ -18,6 +17,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { ExportMenu } from "@/components/pay/export-menu";
 
 import { apiGet, apiPost } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
@@ -60,8 +60,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 interface Period {
   id: string;
@@ -368,23 +366,7 @@ export default function PayPeriodsPage() {
                 )}
               </>
             )}
-            <Button asChild variant="outline">
-              <a href={`${BASE}/api/reports/timesheet.csv?periodId=${selected}`}>
-                <Download /> Timesheet CSV
-              </a>
-            </Button>
-            <Button asChild variant="outline">
-              <a href={`${BASE}/api/reports/timesheet.pdf?periodId=${selected}`}>
-                <Download /> PDF
-              </a>
-            </Button>
-            <Button asChild variant="outline">
-              <a
-                href={`${BASE}/api/reports/payroll?periodId=${selected}&adapter=csv`}
-              >
-                <Download /> Payroll CSV
-              </a>
-            </Button>
+            <ExportMenu period={period} />
           </div>
 
           {!period.lockedAt && +new Date(period.endAt) <= now && (

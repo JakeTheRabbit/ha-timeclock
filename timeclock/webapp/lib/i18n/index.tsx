@@ -73,6 +73,41 @@ export function translate(lang: Lang, key: MessageKey, vars?: TVars): string {
 
 const I18nContext = React.createContext<Lang>("en");
 
+// Per-device language override (Profile page), like the theme: localStorage,
+// null = follow the site setting.
+const LANG_KEY = "tc-lang";
+const langListeners = new Set<() => void>();
+
+export function getLangOverride(): Lang | null {
+  try {
+    const v = localStorage.getItem(LANG_KEY);
+    return v != null && v in LOCALES ? (v as Lang) : null;
+  } catch {
+    return null; // SSR / storage blocked
+  }
+}
+
+export function setLangOverride(lang: Lang | null): void {
+  try {
+    if (lang) localStorage.setItem(LANG_KEY, lang);
+    else localStorage.removeItem(LANG_KEY);
+  } catch {
+    // storage blocked: nothing to persist
+  }
+  langListeners.forEach((l) => l());
+}
+
+export function useLangOverride(): Lang | null {
+  return React.useSyncExternalStore(
+    (cb) => {
+      langListeners.add(cb);
+      return () => langListeners.delete(cb);
+    },
+    getLangOverride,
+    () => null,
+  );
+}
+
 /**
  * Provides the active UI language to the tree and keeps
  * `document.documentElement.lang` in sync. Must live inside the
@@ -80,7 +115,7 @@ const I18nContext = React.createContext<Lang>("en");
  */
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const { language } = useLocale();
-  const lang = asLang(language);
+  const lang = useLangOverride() ?? asLang(language);
 
   React.useEffect(() => {
     if (typeof document !== "undefined") {

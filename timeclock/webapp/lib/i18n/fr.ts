@@ -461,6 +461,31 @@ const fr: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ADMIN_SCREENS — add this area's keys directly below ====
+  "route.me": "Profil",
+  "home.profile.label": "Profil",
+  "home.profile.description": "PIN, langue, apparence",
+  "home.devices.label": "Appareils",
+  "home.devices.description": "Bornes et alertes de test",
+  "home.leaveBalances.label": "Soldes de congés",
+  "home.leaveBalances.description": "Soldes, acquisition, ajustement",
+  "me.pin.title": "PIN",
+  "me.pin.hint": "Votre PIN sert à vous connecter sur la borne.",
+  "me.pin.current": "PIN actuel",
+  "me.pin.new": "Nouveau PIN",
+  "me.pin.confirm": "Répéter le nouveau PIN",
+  "me.pin.change": "Changer le PIN",
+  "me.pin.set": "Définir le PIN",
+  "me.pin.format": "4 à 12 chiffres.",
+  "me.pin.mismatch": "Les nouveaux PIN ne correspondent pas.",
+  "me.pin.same": "C'est votre PIN actuel.",
+  "me.pin.changed": "PIN modifié.",
+  "me.lang.title": "Langue",
+  "me.lang.hint": "Enregistré sur cet appareil.",
+  "me.lang.default": "Par défaut du site",
+  "me.notify.title": "Notifications sur le téléphone",
+  "me.notify.hint": "Votre service notify Home Assistant, p. ex. notify.mobile_app_pixel_8. Les décisions de congés et de corrections ainsi que les rappels de pointage arrivent ici.",
+  "me.notify.saved": "Notifications enregistrées.",
+  "me.notify.invalid": "Utilisez le format notify.nom_du_service.",
 
 
   // ==== batch3:STATUS_I18N — add this area's keys directly below ====
