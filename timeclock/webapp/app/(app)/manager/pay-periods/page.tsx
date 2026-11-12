@@ -1,15 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { Fragment, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Download, Lock, LockKeyhole, LockOpen } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Download,
+  Lock,
+  LockKeyhole,
+  LockOpen,
+  Pencil,
+  TriangleAlert,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 import { apiGet, apiPost } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
+import { entriesHref } from "@/lib/links";
+import { flagLabel, periodDays } from "@/lib/pay-helpers";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,9 +69,31 @@ interface Period {
   endAt: string;
   lockedAt: string | null;
 }
+interface TimesheetDay {
+  date: string;
+  workedMin: number;
+  edited: boolean;
+  publicHoliday: string | null;
+  complianceFlags: string[];
+}
+interface ReadinessPerson {
+  employeeId: string;
+  employeeName: string;
+  approvedDays: string[];
+  unapprovedDays: string[];
+  disputedDays: string[];
+  correctionDays: string[];
+  openShiftDays: string[];
+  pendingLeave: { id: string; type: string; startDate: string; endDate: string }[];
+}
+interface Readiness {
+  ready: boolean;
+  people: ReadinessPerson[];
+}
 interface TimesheetRow {
   employeeId: string;
   employeeName: string;
+  days: TimesheetDay[];
   totals: {
     workedMin: number;
     ordinaryMin: number;
@@ -75,6 +113,7 @@ export default function PayPeriodsPage() {
   const { session, isLoading } = useSession();
   const loc = useLocale();
   const d = (iso: string) => loc.date(iso, { day: "numeric", month: "short" });
+  const dayLabel = (day: string) => loc.date(`${day}T12:00:00`, { weekday: "short", day: "numeric", month: "short" });
   const [picked, setPicked] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -108,6 +147,21 @@ export default function PayPeriodsPage() {
       ),
     enabled: !!selected,
   });
+  const readiness = useQuery({
+    queryKey: ["pay-period-readiness", selected],
+    queryFn: () => apiGet<Readiness>(`/manager/pay-periods/${selected}/readiness`),
+    enabled: !!selected,
+  });
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggleRow = (id: string) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const approvedOf = (employeeId: string) =>
+    new Set(readiness.data?.people.find((p) => p.employeeId === employeeId)?.approvedDays ?? []);
 
   const unlock = useMutation({
     mutationFn: (id: string) => apiPost(`/manager/pay-periods/${id}/unlock`, { reason: unlockReason }),
@@ -157,6 +211,10 @@ export default function PayPeriodsPage() {
   }
 
   const period = timesheet.data?.period;
+  const issues = (readiness.data?.people ?? []).filter((p) => countOf(p) > 0);
+  const notReady = readiness.data ? !readiness.data.ready : false;
+  const outstanding = issues.reduce((a, p) => a + countOf(p), 0);
+  const openShifts = issues.reduce((a, p) => a + p.openShiftDays.length, 0);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
@@ -219,11 +277,21 @@ export default function PayPeriodsPage() {
               <>
                 <Button
                   variant="destructive"
-                  disabled={lock.isPending}
+                  disabled={lock.isPending || readiness.isLoading || notReady}
                   onClick={() => setConfirmOpen(true)}
                 >
                   <LockKeyhole /> Sign off + LOCK period
                 </Button>
+                {notReady && (
+                  <Button
+                    variant="outline"
+                    disabled={lock.isPending || openShifts > 0}
+                    title={openShifts > 0 ? "Close the open shifts first" : undefined}
+                    onClick={() => setConfirmOpen(true)}
+                  >
+                    Lock anyway
+                  </Button>
+                )}
                 <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                   <DialogContent>
                     <DialogHeader>
@@ -232,6 +300,11 @@ export default function PayPeriodsPage() {
                         Signing off locks {d(period.startAt)} –{" "}
                         {d(period.endAt)}. Every time entry inside the period
                         becomes immutable. This cannot be undone.
+                        {notReady && (
+                          <span className="mt-2 block text-amber-300">
+                            {outstanding} item{outstanding === 1 ? "" : "s"} still outstanding — they are locked as they are.
+                          </span>
+                        )}
                       </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
@@ -314,6 +387,10 @@ export default function PayPeriodsPage() {
             </Button>
           </div>
 
+          {!period.lockedAt && +new Date(period.endAt) <= now && (
+            <ReadinessCard loading={readiness.isLoading} people={issues} fmt={dayLabel} />
+          )}
+
           {timesheet.data.rows.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No worked time in this period.
@@ -372,6 +449,19 @@ export default function PayPeriodsPage() {
                           {r.totals.altHolidaysEarned || "—"}
                         </dd>
                       </dl>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 w-full"
+                        aria-expanded={open.has(r.employeeId)}
+                        onClick={() => toggleRow(r.employeeId)}
+                      >
+                        <ChevronDown className={cn("transition-transform", open.has(r.employeeId) && "rotate-180")} />
+                        {open.has(r.employeeId) ? "Hide days" : "Show days"}
+                      </Button>
+                      {open.has(r.employeeId) && (
+                        <DayStrip row={r} days={periodDays(period.startAt, period.endAt)} approved={approvedOf(r.employeeId)} fmt={dayLabel} />
+                      )}
                     </CardContent>
                   </Card>
                 ))}
@@ -395,9 +485,23 @@ export default function PayPeriodsPage() {
                   </TableHeader>
                   <TableBody>
                     {timesheet.data.rows.map((r) => (
-                      <TableRow key={r.employeeId}>
+                      <Fragment key={r.employeeId}>
+                      <TableRow>
                         <TableCell className="font-medium">
-                          {r.employeeName}
+                          <button
+                            type="button"
+                            className="flex items-center gap-1.5 text-left hover:underline"
+                            aria-expanded={open.has(r.employeeId)}
+                            onClick={() => toggleRow(r.employeeId)}
+                          >
+                            <ChevronDown
+                              className={cn(
+                                "size-4 shrink-0 text-muted-foreground transition-transform",
+                                open.has(r.employeeId) && "rotate-180",
+                              )}
+                            />
+                            {r.employeeName}
+                          </button>
                         </TableCell>
                         <TableCell className="font-mono tabular-nums">
                           {h(r.totals.workedMin)}
@@ -439,6 +543,14 @@ export default function PayPeriodsPage() {
                           )}
                         </TableCell>
                       </TableRow>
+                      {open.has(r.employeeId) && (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={9} className="whitespace-normal">
+                            <DayStrip row={r} days={periodDays(period.startAt, period.endAt)} approved={approvedOf(r.employeeId)} fmt={dayLabel} />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>
@@ -447,6 +559,154 @@ export default function PayPeriodsPage() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+const countOf = (p: ReadinessPerson) =>
+  p.unapprovedDays.length + p.disputedDays.length + p.correctionDays.length + p.openShiftDays.length + p.pendingLeave.length;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Before locking: per person, what's still to sort out, each linking to where it's fixed. */
+function ReadinessCard({ loading, people, fmt }: { loading: boolean; people: ReadinessPerson[]; fmt: (day: string) => string }) {
+  if (loading) return <Skeleton className="h-24 w-full rounded-xl" />;
+  if (people.length === 0) {
+    return (
+      <p className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+        <CircleCheck className="size-4 shrink-0" /> Ready to lock — every day approved, nothing outstanding.
+      </p>
+    );
+  }
+  const dayLinks = (employeeId: string, days: string[], edit = false) => (
+    <span className="flex flex-wrap gap-1">
+      {days.map((day) => (
+        <Link
+          key={day}
+          href={entriesHref(employeeId, day, edit)}
+          className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-accent"
+        >
+          {fmt(day)}
+        </Link>
+      ))}
+    </span>
+  );
+  const linkCls = "text-xs underline underline-offset-4 hover:text-foreground";
+  return (
+    <Card className="gap-3 border-amber-500/30">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <TriangleAlert className="size-4 text-amber-400" /> Not ready to lock yet
+        </CardTitle>
+        <CardDescription>Sort these out first, or lock anyway (open shifts always block the lock).</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {people.map((p) => (
+          <div key={p.employeeId} className="flex flex-col gap-1.5 border-t border-border pt-3 first:border-t-0 first:pt-0">
+            <span className="font-medium">{p.employeeName}</span>
+            <ul className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+              {p.openShiftDays.length > 0 && (
+                <li className="flex flex-col gap-1">
+                  <span className="text-destructive">{plural(p.openShiftDays.length, "shift")} still clocked in — close to lock</span>
+                  {dayLinks(p.employeeId, p.openShiftDays, true)}
+                </li>
+              )}
+              {p.disputedDays.length > 0 && (
+                <li className="flex flex-col gap-1">
+                  <span>
+                    {plural(p.disputedDays.length, "day")} with an open dispute ·{" "}
+                    <Link href="/manager/review" className={linkCls}>Review</Link>
+                  </span>
+                  {dayLinks(p.employeeId, p.disputedDays)}
+                </li>
+              )}
+              {p.unapprovedDays.length > 0 && (
+                <li className="flex flex-col gap-1">
+                  <span>
+                    {plural(p.unapprovedDays.length, "day")} not approved ·{" "}
+                    <Link href="/manager/review" className={linkCls}>Review</Link>
+                  </span>
+                  {dayLinks(p.employeeId, p.unapprovedDays)}
+                </li>
+              )}
+              {p.correctionDays.length > 0 && (
+                <li className="flex flex-col gap-1">
+                  <span>
+                    {plural(p.correctionDays.length, "day")} with a correction pending ·{" "}
+                    <Link href="/manager" className={linkCls}>Dashboard</Link>
+                  </span>
+                  {dayLinks(p.employeeId, p.correctionDays)}
+                </li>
+              )}
+              {p.pendingLeave.map((l) => (
+                <li key={l.id}>
+                  Leave request ({l.type.replace(/_/g, " ")}) {fmt(l.startDate)}
+                  {l.endDate !== l.startDate && ` – ${fmt(l.endDate)}`} pending ·{" "}
+                  <Link href="/manager" className={linkCls}>Dashboard</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** One person's period, day by day: hours, named flags, edited, approved — each day opens in Entries. */
+function DayStrip({
+  row,
+  days,
+  approved,
+  fmt,
+}: {
+  row: TimesheetRow;
+  days: string[];
+  approved: Set<string>;
+  fmt: (day: string) => string;
+}) {
+  const byDate = new Map(row.days.map((x) => [x.date, x]));
+  return (
+    <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-7">
+      {days.map((day) => {
+        const x = byDate.get(day);
+        const ok = approved.has(day);
+        return (
+          <Link
+            key={day}
+            href={entriesHref(row.employeeId, day)}
+            className={cn(
+              "flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs hover:bg-accent lg:flex-col lg:items-start lg:gap-1",
+              !x && "text-muted-foreground opacity-60",
+            )}
+          >
+            <span className="w-20 shrink-0 lg:w-auto">{fmt(day)}</span>
+            <span className="font-mono tabular-nums">{x ? `${h(x.workedMin)}h` : "—"}</span>
+            {x && (
+              <span className="flex flex-1 flex-wrap items-center justify-end gap-1 lg:justify-start">
+                {x.publicHoliday && (
+                  <Badge variant="outline" className="px-1 text-[10px]">{x.publicHoliday}</Badge>
+                )}
+                {x.complianceFlags.map((f) => (
+                  <Badge key={f} variant="destructive" className="px-1 text-[10px]">{flagLabel(f)}</Badge>
+                ))}
+                {x.edited && (
+                  <span className="inline-flex items-center gap-0.5 text-amber-300" title="Edited">
+                    <Pencil className="size-3" /> Edited
+                  </span>
+                )}
+                {ok ? (
+                  <span className="inline-flex items-center gap-0.5 text-emerald-300" title="Approved">
+                    <Check className="size-3" /> Approved
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Not approved</span>
+                )}
+              </span>
+            )}
+          </Link>
+        );
+      })}
     </div>
   );
 }

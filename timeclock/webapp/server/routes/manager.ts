@@ -1,8 +1,18 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { timeEntries, breaks, employees, payPeriods, auditLog } from "@/db/schema";
+import {
+  timeEntries,
+  breaks,
+  employees,
+  payPeriods,
+  auditLog,
+  dayApprovals,
+  modifications,
+  corrections,
+  leaveRequests,
+} from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole, roleAtLeast } from "@/server/auth/rbac";
 import { insightsSlice } from "@/server/domain/insights";
@@ -121,6 +131,108 @@ export const manager = new Hono<AppEnv>()
     });
     if (!period) return c.json({ error: "not_found" }, 404);
     return c.json({ period, rows: await buildTimesheet(period) });
+  })
+
+  // Lock readiness: per person, what is still outstanding in the period —
+  // unapproved days, open disputes, pending corrections, pending leave that
+  // overlaps it, shifts still open (the only one that blocks the lock).
+  .get("/pay-periods/:id/readiness", async (c) => {
+    const id = c.req.param("id")!;
+    const db = getDb();
+    const period = await db.query.payPeriods.findFirst({ where: (p, { eq: eq_ }) => eq_(p.id, id) });
+    if (!period) return c.json({ error: "not_found" }, 404);
+    const firstDay = nzDateOf(period.startAt);
+    const lastDay = nzDateOf(new Date(period.endAt.getTime() - 1));
+    const inPeriod = and(gte(timeEntries.clockIn, period.startAt), lt(timeEntries.clockIn, period.endAt));
+
+    const entries = await db
+      .select({ employeeId: timeEntries.employeeId, clockIn: timeEntries.clockIn, clockOut: timeEntries.clockOut })
+      .from(timeEntries)
+      .where(inPeriod);
+    const approvals = await db
+      .select({ employeeId: dayApprovals.employeeId, day: dayApprovals.day })
+      .from(dayApprovals)
+      .where(and(gte(dayApprovals.day, firstDay), lte(dayApprovals.day, lastDay)));
+    const disputes = await db
+      .select({ employeeId: modifications.employeeId, day: modifications.day })
+      .from(modifications)
+      .where(and(eq(modifications.status, "disputed"), gte(modifications.day, firstDay), lte(modifications.day, lastDay)));
+    const pendingCorrections = await db
+      .select({ employeeId: corrections.employeeId, clockIn: timeEntries.clockIn })
+      .from(corrections)
+      .innerJoin(timeEntries, eq(corrections.timeEntryId, timeEntries.id))
+      .where(and(eq(corrections.status, "pending"), inPeriod));
+    const pendingLeave = await db
+      .select({
+        id: leaveRequests.id,
+        employeeId: leaveRequests.employeeId,
+        type: leaveRequests.type,
+        startDate: leaveRequests.startDate,
+        endDate: leaveRequests.endDate,
+      })
+      .from(leaveRequests)
+      .where(
+        and(
+          eq(leaveRequests.status, "pending"),
+          lte(leaveRequests.startDate, lastDay),
+          gte(leaveRequests.endDate, firstDay),
+        ),
+      );
+
+    type Person = {
+      employeeId: string;
+      employeeName: string;
+      approvedDays: string[];
+      unapprovedDays: string[];
+      disputedDays: string[];
+      correctionDays: string[];
+      openShiftDays: string[];
+      pendingLeave: { id: string; type: string; startDate: string; endDate: string }[];
+    };
+    const people = new Map<string, Person>();
+    const get = (employeeId: string) => {
+      let p = people.get(employeeId);
+      if (!p) {
+        p = { employeeId, employeeName: "", approvedDays: [], unapprovedDays: [], disputedDays: [], correctionDays: [], openShiftDays: [], pendingLeave: [] };
+        people.set(employeeId, p);
+      }
+      return p;
+    };
+    const add = (list: string[], day: string) => {
+      if (!list.includes(day)) list.push(day);
+    };
+    const approved = new Set(approvals.map((a) => `${a.employeeId}|${a.day}`));
+    for (const a of approvals) add(get(a.employeeId).approvedDays, a.day);
+    for (const e of entries) {
+      const day = nzDateOf(e.clockIn);
+      if (!approved.has(`${e.employeeId}|${day}`)) add(get(e.employeeId).unapprovedDays, day);
+      if (!e.clockOut) add(get(e.employeeId).openShiftDays, day);
+    }
+    for (const d of disputes) add(get(d.employeeId).disputedDays, d.day);
+    for (const x of pendingCorrections) add(get(x.employeeId).correctionDays, nzDateOf(x.clockIn));
+    for (const l of pendingLeave) get(l.employeeId).pendingLeave.push({ id: l.id, type: l.type, startDate: l.startDate, endDate: l.endDate });
+
+    if (people.size) {
+      const names = await db
+        .select({ id: employees.id, displayName: employees.displayName })
+        .from(employees)
+        .where(inArray(employees.id, [...people.keys()]));
+      for (const n of names) people.get(n.id)!.employeeName = n.displayName;
+    }
+    const rows = [...people.values()]
+      .map((p) => {
+        for (const k of ["approvedDays", "unapprovedDays", "disputedDays", "correctionDays", "openShiftDays"] as const) p[k].sort();
+        return p;
+      })
+      .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+    const outstanding = (p: Person) =>
+      p.unapprovedDays.length + p.disputedDays.length + p.correctionDays.length + p.openShiftDays.length + p.pendingLeave.length;
+    return c.json({
+      firstDay,
+      lastDay,
+      ready: rows.every((p) => outstanding(p) === 0),
+      people: rows,
+    });
   })
 
   // Sign-off + LOCK (manager+). Locked periods are immutable (guard on edits).
