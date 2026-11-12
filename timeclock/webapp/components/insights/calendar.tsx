@@ -2,18 +2,20 @@
 
 import * as React from "react";
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { dayKey, hhmm, hours, localParts, type Slice, type SliceEntry } from "@/lib/insights";
+import { useLocale } from "@/lib/format";
+import { entriesHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import { seriesVar, useWidth } from "./charts";
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-/** The 6-week Mon-start grid covering a month (YYYY-MM). */
-export function monthGrid(month: string): string[] {
+/** The 6-week grid covering a month (YYYY-MM), starting on `weekStart` (0 = Sun, 1 = Mon). */
+export function monthGrid(month: string, weekStart: 0 | 1 = 1): string[] {
   const [y, m] = month.split("-").map(Number);
   const first = new Date(Date.UTC(y, m - 1, 1, 12));
-  const offset = (first.getUTCDay() + 6) % 7;
+  const offset = (first.getUTCDay() - weekStart + 7) % 7;
   return Array.from({ length: 42 }, (_, i) =>
     new Date(Date.UTC(y, m - 1, 1 - offset + i, 12)).toISOString().slice(0, 10),
   );
@@ -23,19 +25,24 @@ function ShiftLine({ e, slice }: { e: SliceEntry; slice: Slice }) {
   const p = slice.employees.find((x) => x.id === e.employeeId);
   const flagged = e.fraudFlags.includes("no_door_access");
   return (
-    <li className="flex items-center gap-2 py-1 text-sm">
-      <span className="size-2.5 shrink-0 rounded-sm" style={{ background: seriesVar(p?.slot ?? 0) }} />
-      <span className="w-28 truncate font-medium">{p?.displayName ?? "?"}</span>
-      <span className="flex-1 font-mono text-xs text-muted-foreground">
-        {hhmm(localParts(e.clockIn).minute)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : "on shift"}
-      </span>
-      {flagged && (
-        <span className="flex items-center gap-1 text-xs text-[var(--warning-color)]">
-          <AlertTriangle className="size-3.5" /> no swipe
+    <li>
+      <Link
+        href={entriesHref(e.employeeId, dayKey(e.clockIn))}
+        className="-mx-1 flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent"
+      >
+        <span className="size-2.5 shrink-0 rounded-sm" style={{ background: seriesVar(p?.slot ?? 0) }} />
+        <span className="w-28 truncate font-medium">{p?.displayName ?? "?"}</span>
+        <span className="flex-1 font-mono text-xs text-muted-foreground">
+          {hhmm(localParts(e.clockIn).minute)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : "on shift"}
         </span>
-      )}
-      {e.edited && <span className="text-xs text-muted-foreground">edited</span>}
-      <span className="w-14 text-right font-mono text-xs tabular-nums">{hours(e.workedMinutes)}</span>
+        {flagged && (
+          <span className="flex items-center gap-1 text-xs text-[var(--warning-color)]">
+            <AlertTriangle className="size-3.5" /> no swipe
+          </span>
+        )}
+        {e.edited && <span className="text-xs text-muted-foreground">edited</span>}
+        <span className="w-14 text-right font-mono text-xs tabular-nums">{hours(e.workedMinutes)}</span>
+      </Link>
     </li>
   );
 }
@@ -44,10 +51,11 @@ function ShiftLine({ e, slice }: { e: SliceEntry; slice: Slice }) {
  * Month view: each day lists who worked (colour + name + hours; flagged
  * shifts carry a warning icon). Tap a day for its shifts and roster.
  */
-export function MonthCalendar({ month, slice }: { month: string; slice: Slice }) {
-  const days = monthGrid(month);
+export function MonthCalendar({ month, slice, initialOpen = null }: { month: string; slice: Slice; initialOpen?: string | null }) {
+  const loc = useLocale();
+  const days = monthGrid(month, loc.weekStart);
   const today = dayKey(new Date());
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(initialOpen);
   const byDay = new Map<string, SliceEntry[]>();
   for (const e of slice.entries) byDay.set(dayKey(e.clockIn), [...(byDay.get(dayKey(e.clockIn)) ?? []), e]);
   const nameOf = (id: string) => slice.employees.find((p) => p.id === id);
@@ -66,9 +74,9 @@ export function MonthCalendar({ month, slice }: { month: string; slice: Slice })
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        {WEEKDAYS.map((d) => (
+        {days.slice(0, 7).map((d) => (
           <div key={d} className="bg-card px-1 py-1 text-center text-[11px] font-medium text-muted-foreground">
-            {d}
+            {loc.weekday(new Date(`${d}T12:00:00Z`).getUTCDay())}
           </div>
         ))}
         {days.map((d) => {
@@ -110,7 +118,7 @@ export function MonthCalendar({ month, slice }: { month: string; slice: Slice })
         <div className="rounded-xl border border-border bg-card p-3">
           <div className="mb-1 flex items-baseline gap-2">
             <span className="font-medium">
-              {new Date(`${open}T12:00:00Z`).toLocaleDateString("en-NZ", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" })}
+              {loc.date(`${open}T12:00:00Z`, { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" })}
             </span>
             <span className="text-sm text-muted-foreground">
               {hours(openEntries.reduce((a, e) => a + e.workedMinutes, 0))} total
@@ -137,10 +145,12 @@ export function MonthCalendar({ month, slice }: { month: string; slice: Slice })
 }
 
 /**
- * Week timeline: one row per person, shifts as bars across Mon–Sun on a
+ * Week timeline: one row per person, shifts as bars across the week on a
  * 24h-per-day track; rostered shifts sit behind as hollow outlines.
  */
 export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: Slice }) {
+  const loc = useLocale();
+  const router = useRouter();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<{ x: number; y: number; body: React.ReactNode } | null>(null);
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -169,7 +179,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
             <g key={d}>
               <line x1={labelW + i * dayW} x2={labelW + i * dayW} y1={0} y2={people.length * rowH} stroke="var(--border)" />
               <text x={labelW + i * dayW + dayW / 2} y={people.length * rowH + 16} textAnchor="middle" className="fill-muted-foreground text-[10px]">
-                {WEEKDAYS[i]} {Number(d.slice(8))}
+                {loc.weekday(new Date(`${d}T12:00:00Z`).getUTCDay())} {Number(d.slice(8))}
               </text>
             </g>
           ))}
@@ -210,6 +220,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
                     const endMs = e.clockOut ? new Date(e.clockOut).getTime() : Date.now();
                     const w = Math.max(3, ((endMs - new Date(e.clockIn).getTime()) / 60_000) * pxPerMin);
                     const flagged = e.fraudFlags.includes("no_door_access");
+                    const go = () => router.push(entriesHref(p.id, dayKey(e.clockIn)));
                     const showTip = () =>
                       setTip({
                         x: x + w / 2,
@@ -217,7 +228,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
                         body: (
                           <>
                             <div className="font-medium">
-                              {p.displayName} · {dayKey(e.clockIn)}
+                              {p.displayName} · {loc.date(e.clockIn)}
                             </div>
                             <div className="font-mono">
                               {hhmm(start)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : "on shift"} · {hours(e.workedMinutes)}
@@ -243,7 +254,10 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
                         onMouseEnter={showTip}
                         onFocus={showTip}
                         onBlur={() => setTip(null)}
-                        className="outline-none"
+                        onClick={go}
+                        onKeyDown={(ev) => ev.key === "Enter" && go()}
+                        role="link"
+                        className="cursor-pointer outline-none"
                       />
                     );
                   })}
@@ -262,7 +276,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
           {tip.body}
         </div>
       )}
-      <p className="mt-1 text-[11px] text-muted-foreground">Filled bar = worked · outline = rostered · amber edge = no door swipe</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">Filled bar = worked (tap to open the day) · outline = rostered · amber edge = no door swipe</p>
     </div>
   );
 }

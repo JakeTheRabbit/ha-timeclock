@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
-import { hours, type SliceEmployee } from "@/lib/insights";
+import { hours, type delta, type SliceEmployee } from "@/lib/insights";
+import { useLocale } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const seriesVar = (slot: number) => `var(--series-${(slot % 8) + 1})`;
@@ -20,11 +21,41 @@ export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
   return [ref, w];
 }
 
-export function StatTile({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "warn" }) {
+export function StatTile({
+  label,
+  value,
+  hint,
+  tone,
+  change,
+  prev,
+  upIsBad,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "warn";
+  /** vs the previous equal-length period (lib/insights delta()). */
+  change?: ReturnType<typeof delta>;
+  /** previous period's value, shown on hover */
+  prev?: string;
+  /** colour a rise amber (flags); leave undefined for neutral numbers */
+  upIsBad?: boolean;
+}) {
+  const bad = !!change && change.dir === (upIsBad ? "up" : "down");
   return (
     <div className="flex flex-col gap-0.5 rounded-xl border border-border bg-card p-3">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={cn("text-2xl font-semibold", tone === "warn" && "text-[var(--warning-color)]")}>{value}</span>
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        <span className={cn("text-2xl font-semibold", tone === "warn" && "text-[var(--warning-color)]")}>{value}</span>
+        {change && (
+          <span
+            className={cn("text-xs tabular-nums", upIsBad !== undefined && bad ? "text-[var(--warning-color)]" : "text-muted-foreground")}
+            title={prev ? `Previous period: ${prev}` : undefined}
+          >
+            {change.dir === "up" ? "▲" : change.dir === "down" ? "▼" : "="} {change.pct}%
+          </span>
+        )}
+      </span>
       {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
     </div>
   );
@@ -80,11 +111,17 @@ export function DailyHoursChart({
   data,
   people,
   dayLabel,
+  onDay,
+  onSegment,
 }: {
   days: string[];
   data: Map<string, Map<string, number>>;
   people: SliceEmployee[];
   dayLabel: (day: string) => string;
+  /** click on a day's column */
+  onDay?: (day: string) => void;
+  /** click on one person's segment of a day */
+  onSegment?: (day: string, employeeId: string) => void;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
@@ -144,6 +181,23 @@ export function DailyHoursChart({
               .filter((s) => s.h > 0);
             return (
               <g key={d}>
+                {/* hit area: whole column, bigger than the mark (drawn under the segments so they stay clickable) */}
+                <rect
+                  x={pad.l + slotW * i}
+                  y={pad.t}
+                  width={slotW}
+                  height={H}
+                  fill="transparent"
+                  tabIndex={0}
+                  role={onDay ? "button" : undefined}
+                  aria-label={`${dayLabel(d)}: ${hours(Math.round(totalOf(d) * 60))}`}
+                  onMouseEnter={() => show(d, cx)}
+                  onFocus={() => show(d, cx)}
+                  onBlur={() => setTip(null)}
+                  onClick={() => onDay?.(d)}
+                  onKeyDown={(e) => e.key === "Enter" && onDay?.(d)}
+                  className={cn("outline-none focus-visible:fill-[var(--border)]", onDay && "cursor-pointer")}
+                />
                 {segs.map((s, j) => {
                   const top = y(acc + s.h);
                   const bottom = y(acc);
@@ -156,24 +210,13 @@ export function DailyHoursChart({
                     <path
                       key={s.p.id}
                       fill={seriesVar(s.p.slot)}
+                      onMouseEnter={() => show(d, cx)}
+                      onClick={() => (onSegment ? onSegment(d, s.p.id) : onDay?.(d))}
+                      className={onSegment || onDay ? "cursor-pointer" : undefined}
                       d={`M${x},${top + h} V${top + r} Q${x},${top} ${x + r},${top} H${x + barW - r} Q${x + barW},${top} ${x + barW},${top + r} V${top + h} Z`}
                     />
                   );
                 })}
-                {/* hit area: whole column, bigger than the mark */}
-                <rect
-                  x={pad.l + slotW * i}
-                  y={pad.t}
-                  width={slotW}
-                  height={H}
-                  fill="transparent"
-                  tabIndex={0}
-                  aria-label={`${dayLabel(d)}: ${hours(Math.round(totalOf(d) * 60))}`}
-                  onMouseEnter={() => show(d, cx)}
-                  onFocus={() => show(d, cx)}
-                  onBlur={() => setTip(null)}
-                  className="outline-none focus-visible:fill-[var(--border)]"
-                />
                 {i % labelEvery === 0 && (
                   <text x={cx} y={pad.t + H + 16} textAnchor="middle" className="fill-muted-foreground text-[10px]">
                     {dayLabel(d)}
@@ -190,13 +233,15 @@ export function DailyHoursChart({
   );
 }
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 /**
  * When people are on site: total person-hours per weekday × hour, one-hue
  * ramp from the card surface to blue, with a scale legend.
  */
 export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
+  const loc = useLocale();
+  // grid rows are Mon..Sun; show them from the site's first weekday
+  const order = loc.weekStart === 0 ? [6, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
+  const dayName = (wd: number) => loc.weekday((wd + 1) % 7);
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
   const max = Math.max(1, ...grid.flat());
@@ -210,30 +255,30 @@ export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
     <div ref={ref} className="relative w-full" onMouseLeave={() => setTip(null)}>
       {width > 0 && (
         <svg width={width} height={ch * 7 + 22} role="img" aria-label="Person-hours on site by weekday and hour">
-          {grid.map((row, wd) => (
+          {order.map((wd, ri) => ({ wd, ri, row: grid[wd] })).map(({ wd, ri, row }) => (
             <g key={wd}>
-              <text x={padL - 6} y={wd * ch + ch / 2} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-[10px]">
-                {WEEKDAYS[wd]}
+              <text x={padL - 6} y={ri * ch + ch / 2} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-[10px]">
+                {dayName(wd)}
               </text>
               {row.map((v, h) => (
                 <rect
                   key={h}
                   x={padL + h * cell + 1}
-                  y={wd * ch + 1}
+                  y={ri * ch + 1}
                   width={Math.max(0, cell - 2)}
                   height={ch - 2}
                   rx={2}
                   fill={fill(v)}
                   tabIndex={v > 0 ? 0 : -1}
-                  aria-label={`${WEEKDAYS[wd]} ${h}:00: ${(v / 60).toFixed(1)} person-hours`}
+                  aria-label={`${dayName(wd)} ${h}:00: ${(v / 60).toFixed(1)} person-hours`}
                   onMouseEnter={() =>
                     setTip({
                       x: padL + h * cell + cell / 2,
-                      y: wd * ch,
+                      y: ri * ch,
                       body: (
                         <>
                           <div className="font-medium">
-                            {WEEKDAYS[wd]} {String(h).padStart(2, "0")}:00–{String((h + 1) % 24).padStart(2, "0")}:00
+                            {dayName(wd)} {String(h).padStart(2, "0")}:00–{String((h + 1) % 24).padStart(2, "0")}:00
                           </div>
                           <div className="tabular-nums">{(v / 60).toFixed(1)} person-hours</div>
                         </>
