@@ -339,6 +339,18 @@ const fr: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====
+  "myHours.correctionPending": "Correction en attente",
+  "myHours.correctionApproved": "Correction approuvée",
+  "myHours.correctionDeclined": "Correction refusée",
+  "myHours.correctionNote": "Responsable : {note}",
+  "myHours.fixThis": "Corriger",
+  "corrections.in": "Arrivée",
+  "corrections.out": "Départ",
+  "corrections.worked": "Travaillé",
+  "corrections.running": "en cours",
+  "corrections.requestedNote": "Note : {note}",
+  "corrections.openDay": "Ouvrir la journée",
+  "corrections.notePlaceholder": "Message à {name} (facultatif)",
 
 
   // ==== batch2:REVIEW — add this area's keys directly below ====

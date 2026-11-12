@@ -22,6 +22,7 @@ import { useLiveTimer } from "@/hooks/use-live-timer";
 import { useLocale } from "@/lib/format";
 import { entriesHref } from "@/lib/links";
 import { localDay } from "@/components/entries/edit-entry-dialog";
+import { CorrectionRequest, type PendingCorrection } from "@/components/corrections/correction-request";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -47,13 +48,6 @@ interface Board {
     breakSince: string | null;
   }[];
   todayClosedMin: Record<string, number>;
-}
-interface PendingCorrection {
-  id: string;
-  employeeName: string;
-  reason: string;
-  requested: { clockIn?: string; clockOut?: string; note?: string };
-  createdAt: string;
 }
 interface PendingLeave {
   id: string;
@@ -132,8 +126,8 @@ export default function ManagerPage() {
   const reviewDisputed = review.data?.modifications.filter((m) => m.status === "disputed").length ?? 0;
 
   const decideCorrection = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "approve" | "reject" }) =>
-      apiPost(`/corrections/${id}/${action}`, {}),
+    mutationFn: ({ id, action, note }: { id: string; action: "approve" | "reject"; note?: string }) =>
+      apiPost(`/corrections/${id}/${action}`, note ? { note } : {}),
     onSuccess: (_data, v) => {
       toast.success(
         v.action === "approve" ? "Correction approved." : "Correction declined.",
@@ -251,47 +245,12 @@ export default function ManagerPage() {
             <p className="text-sm text-muted-foreground">None pending.</p>
           )}
           {corrections.data?.corrections.map((cr) => (
-            <div
+            <CorrectionRequest
               key={cr.id}
-              className="flex flex-col gap-3 rounded-lg border border-border p-3"
-            >
-              <div className="text-sm">
-                <span className="font-medium">{cr.employeeName}</span>{" "}
-                <span className="text-muted-foreground">— {cr.reason}</span>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {cr.requested.clockIn && (
-                    <>
-                      in → {loc.dateTime(cr.requested.clockIn)}
-                      {" · "}
-                    </>
-                  )}
-                  {cr.requested.clockOut && (
-                    <>
-                      out → {loc.dateTime(cr.requested.clockOut)}
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  disabled={decideCorrection.isPending}
-                  onClick={() =>
-                    decideCorrection.mutate({ id: cr.id, action: "approve" })
-                  }
-                >
-                  <Check /> Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  disabled={decideCorrection.isPending}
-                  onClick={() =>
-                    decideCorrection.mutate({ id: cr.id, action: "reject" })
-                  }
-                >
-                  <X /> Decline
-                </Button>
-              </div>
-            </div>
+              cr={cr}
+              busy={decideCorrection.isPending}
+              onDecide={(action, note) => decideCorrection.mutate({ id: cr.id, action, note })}
+            />
           ))}
         </CardContent>
       </Card>

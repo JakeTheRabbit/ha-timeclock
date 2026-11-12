@@ -61,6 +61,8 @@ interface DemoCorrection {
   requested: { clockIn?: string; clockOut?: string; note?: string };
   status: "pending" | "approved" | "rejected";
   createdAt: string;
+  reviewedAt?: string;
+  reviewNote?: string | null;
 }
 
 interface DemoLeave {
@@ -756,7 +758,7 @@ function handle(req: Req): { status: number; body: Json } {
       id: uuid(idc++ + 1000),
       employeeId: me().id,
       employeeName: me().displayName,
-      entryId: String(req.body?.entryId ?? ""),
+      entryId: String(req.body?.timeEntryId ?? ""),
       reason: String(req.body?.reason ?? ""),
       requested: (req.body?.requested as DemoCorrection["requested"]) ?? {},
       status: "pending",
@@ -766,14 +768,42 @@ function handle(req: Req): { status: number; body: Json } {
     pushAudit({ entityType: "correction", entityId: c.id, action: "request", actorId: me().id, reason: c.reason, oldValue: null, newValue: null });
     return ok({ ok: true, id: c.id });
   }
+  if (seg === "/corrections/mine") {
+    const from = req.query.get("from");
+    const to = req.query.get("to");
+    return ok({
+      corrections: state.corrections
+        .filter((c) => c.employeeId === me().id)
+        .map((c) => {
+          const e = state.entries.find((x) => x.id === c.entryId);
+          return { ...c, timeEntryId: c.entryId, day: e ? facDay(e.clockIn) : "" };
+        })
+        .filter((c) => c.day && (!from || c.day >= from) && (!to || c.day <= to)),
+    });
+  }
   if (seg === "/corrections/pending") {
-    return ok({ corrections: state.corrections.filter((c) => c.status === "pending") });
+    return ok({
+      corrections: state.corrections
+        .filter((c) => c.status === "pending")
+        .flatMap((c) => {
+          const e = state.entries.find((x) => x.id === c.entryId);
+          if (!e) return [];
+          const day = facDay(e.clockIn);
+          const dayEntries = state.entries
+            .filter((x) => x.employeeId === e.employeeId && facDay(x.clockIn) === day)
+            .sort((a, b) => new Date(a.clockIn).getTime() - new Date(b.clockIn).getTime())
+            .map(entryJson);
+          return [{ ...c, timeEntryId: c.entryId, day, original: { clockIn: e.clockIn, clockOut: e.clockOut }, dayEntries }];
+        }),
+    });
   }
   if (/^\/corrections\/[^/]+\/(approve|reject)$/.test(seg) && method === "POST") {
     const [, , id, action] = seg.split("/");
     const c = state.corrections.find((x) => x.id === id);
     if (!c) return ok({ error: "not_found" }, 404);
     c.status = action === "approve" ? "approved" : "rejected";
+    c.reviewedAt = iso(new Date());
+    c.reviewNote = (req.body?.note as string | undefined) ?? null;
     if (action === "approve") {
       const e = state.entries.find((x) => x.id === c.entryId);
       if (e) {
