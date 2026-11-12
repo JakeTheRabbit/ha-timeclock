@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { timeEntries, breaks, employees, payPeriods, auditLog } from "@/db/schema";
+import { timeEntries, breaks, employees, payPeriods, auditLog, leaveRequests } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { requireRole, roleAtLeast } from "@/server/auth/rbac";
 import { insightsSlice } from "@/server/domain/insights";
@@ -81,6 +81,27 @@ export const manager = new Hono<AppEnv>()
       .from(employees)
       .orderBy(employees.displayName);
     return c.json({ employees: rows });
+  })
+
+  // One person's approved leave overlapping a date range (day-editor defaults skip these days).
+  .get("/leave", async (c) => {
+    const dateISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+    const q = z
+      .object({ employeeId: z.string().uuid(), from: dateISO, to: dateISO })
+      .safeParse({ employeeId: c.req.query("employeeId"), from: c.req.query("from"), to: c.req.query("to") });
+    if (!q.success) return c.json({ error: "bad_request" }, 400);
+    const rows = await getDb()
+      .select({ startDate: leaveRequests.startDate, endDate: leaveRequests.endDate, type: leaveRequests.type })
+      .from(leaveRequests)
+      .where(
+        and(
+          eq(leaveRequests.employeeId, q.data.employeeId),
+          eq(leaveRequests.status, "approved"),
+          lte(leaveRequests.startDate, q.data.to),
+          gte(leaveRequests.endDate, q.data.from),
+        ),
+      );
+    return c.json({ leave: rows });
   })
 
   .get("/entries", async (c) => {

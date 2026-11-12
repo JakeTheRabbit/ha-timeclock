@@ -16,6 +16,9 @@
 
 import { tzOffset, APP_TZ } from "@/lib/tz";
 import { todayWork } from "@/lib/clock-context";
+import type { Roster } from "@/db/schema";
+import { compareShift } from "@/server/domain/roster/compare";
+import { nzPublicHolidays } from "@/server/domain/holidays/nz-public-holidays";
 
 type Json = Record<string, unknown>;
 
@@ -938,18 +941,36 @@ function handle(req: Req): { status: number; body: Json } {
   }
   if (seg === "/roster/compare") {
     const date = req.query.get("date") ?? dayStr(new Date());
+    const now = new Date();
     const shifts = state.shifts
       .filter((s) => s.shiftDate === date)
-      .map((s, i) => ({
-        rosterId: s.id,
+      .map((s) => ({
+        ...compareShift(
+          { ...s, cancelled: false } as unknown as Roster,
+          state.entries
+            .filter((e) => e.employeeId === s.employeeId)
+            .map((e) => ({ clockIn: new Date(e.clockIn), clockOut: e.clockOut ? new Date(e.clockOut) : null })),
+          now,
+        ),
         employeeName: empName(s.employeeId),
         startMin: s.startMin,
         endMin: s.endMin,
-        status: (["ok", "late", "in_progress", "upcoming", "no_show"] as const)[i % 5],
-        lateMin: i % 5 === 1 ? 12 : 0,
-        actualIn: i % 5 === 1 ? iso(new Date()) : null,
       }));
     return ok({ date, shifts });
+  }
+  if (seg === "/manager/leave") {
+    const who = req.query.get("employeeId");
+    const from = req.query.get("from") ?? "0000";
+    const to = req.query.get("to") ?? "9999";
+    return ok({
+      leave: state.leave
+        .filter((l) => l.employeeId === who && l.status === "approved" && l.startDate <= to && l.endDate >= from)
+        .map((l) => ({ startDate: l.startDate, endDate: l.endDate, type: l.type })),
+    });
+  }
+  if (seg === "/holidays") {
+    const year = Number(req.query.get("year")) || new Date().getFullYear();
+    return ok({ year, holidays: nzPublicHolidays(year) });
   }
   if (seg === "/roster" && method === "POST") {
     const s: DemoShift = {

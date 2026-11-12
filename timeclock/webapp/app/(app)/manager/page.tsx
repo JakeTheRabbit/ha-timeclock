@@ -51,10 +51,43 @@ interface Board {
   todayClosedMin: Record<string, number>;
 }
 
+/** GET /roster/compare — today's rostered shifts vs punches. */
+interface RosterShift {
+  rosterId: string;
+  employeeId: string;
+  employeeName: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  actualIn: string | null;
+  status: "ok" | "late" | "no_show" | "in_progress" | "upcoming";
+}
+
 const errorMessage = (e: unknown): string => apiErrorText(e);
 
-function LiveRow({ e }: { e: Board["clockedIn"][number] }) {
-  const timer = useLiveTimer(e.clockIn);
+const hm = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = Math.floor(min % 60);
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+};
+
+function LiveRow({
+  e,
+  shift,
+  closedMin,
+}: {
+  e: Board["clockedIn"][number];
+  shift?: RosterShift;
+  closedMin: number;
+}) {
+  const timer = useLiveTimer(e.clockIn); // also re-renders every second
+  const loc = useLocale();
+  const now = Date.now();
+  const todayMin = closedMin + (now - new Date(e.clockIn).getTime()) / 60_000;
+  // Progress from clock-in to their rostered end.
+  const a = new Date(e.clockIn).getTime();
+  const end = shift ? new Date(shift.scheduledEnd).getTime() : NaN;
+  const pct = end > a ? Math.min(100, ((now - a) / (end - a)) * 100) : 100;
+  const overMin = (now - end) / 60_000;
   return (
     <Link
       href={entriesHref(e.employeeId, localDay(new Date(e.clockIn)))}
@@ -72,12 +105,60 @@ function LiveRow({ e }: { e: Board["clockedIn"][number] }) {
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{e.employeeName}</div>
         <div className="text-xs text-muted-foreground">
-          {e.onBreak ? "On break" : "Working"}
+          {e.onBreak ? "On break" : "Working"} · today {hm(todayMin)}
+          {shift &&
+            (overMin > 0 ? (
+              <span className="text-amber-400"> · {Math.round(overMin)}m past rostered end</span>
+            ) : (
+              <> · rostered until {loc.time(shift.scheduledEnd)}</>
+            ))}
         </div>
+        {shift && (
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full ${overMin > 0 ? "bg-amber-400" : "bg-primary/70"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        )}
       </div>
       <span className="font-mono text-sm tabular-nums text-muted-foreground">
         {timer}
       </span>
+    </Link>
+  );
+}
+
+/** Rostered today, not clocked in: how long until due, or how late. */
+function DueRow({ s, today }: { s: RosterShift; today: string }) {
+  const loc = useLocale();
+  const start = new Date(s.scheduledStart).getTime();
+  const min = Math.round((start - Date.now()) / 60_000);
+  const missed = s.status === "no_show";
+  const late = !missed && min < 0;
+  return (
+    <Link
+      href={entriesHref(s.employeeId, today)}
+      className="-mx-2 flex min-h-11 items-center gap-3 rounded-md px-2 hover:bg-muted/50"
+    >
+      <Avatar employeeId={s.employeeId} name={s.employeeName} size="sm" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{s.employeeName}</div>
+        <div className="text-xs text-muted-foreground">
+          Rostered {loc.time(s.scheduledStart)}–{loc.time(s.scheduledEnd)}
+        </div>
+      </div>
+      <Badge
+        className={`border-transparent ${
+          missed
+            ? "bg-destructive/15 text-destructive"
+            : late
+              ? "bg-amber-500/15 text-amber-300"
+              : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {missed ? "Didn't show" : late ? `Late ${hm(-min)}` : `Due in ${hm(min)}`}
+      </Badge>
     </Link>
   );
 }
@@ -95,6 +176,23 @@ export default function ManagerPage() {
     enabled: !!canSee,
     refetchInterval: 15_000,
   });
+  const today = localDay();
+  const rosterToday = useQuery({
+    queryKey: ["roster-compare", today],
+    queryFn: () => apiGet<{ shifts: RosterShift[] }>(`/roster/compare?date=${today}`),
+    enabled: !!canSee,
+    refetchInterval: 60_000,
+  });
+  const shiftsToday = rosterToday.data?.shifts ?? [];
+  const inNow = new Set(board.data?.clockedIn.map((e) => e.employeeId));
+  const rank = { late: 0, upcoming: 1, no_show: 2 } as Record<string, number>;
+  const notIn = shiftsToday
+    .filter((s) => !s.actualIn && s.status in rank && !inNow.has(s.employeeId))
+    .sort((a, b) => rank[a.status] - rank[b.status] || a.scheduledStart.localeCompare(b.scheduledStart));
+  // The rostered shift a working person is on (or the first one today).
+  const shiftFor = (employeeId: string) =>
+    shiftsToday.find((s) => s.employeeId === employeeId && s.status === "in_progress") ??
+    shiftsToday.find((s) => s.employeeId === employeeId);
   const corrections = useQuery({
     queryKey: ["pending-corrections"],
     queryFn: () =>
@@ -174,8 +272,24 @@ export default function ManagerPage() {
             </div>
           )}
           {board.data?.clockedIn.map((e) => (
-            <LiveRow key={e.entryId} e={e} />
+            <LiveRow
+              key={e.entryId}
+              e={e}
+              shift={shiftFor(e.employeeId)}
+              closedMin={board.data?.todayClosedMin[e.employeeId] ?? 0}
+            />
           ))}
+          {notIn.length > 0 && (
+            <>
+              <Separator className="my-2" />
+              <div className="text-xs font-medium text-muted-foreground">
+                Rostered today, not clocked in
+              </div>
+              {notIn.map((s) => (
+                <DueRow key={s.rosterId} s={s} today={today} />
+              ))}
+            </>
+          )}
         </CardContent>
       </Card>
 

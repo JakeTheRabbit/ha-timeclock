@@ -431,6 +431,7 @@ const en = {
 
 
   // ==== batch2:BOARD_DEFAULTS — add this area's keys directly below ====
+  "myHours.nextDay": "next day",
 
 
 } as const;

@@ -8,9 +8,13 @@ import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import {
   EditEntryDialog,
+  daysBetween,
   localDay,
+  recentWindow,
   suggestMissingDay,
+  typicalForDay,
   typicalFrom,
+  useHolidayDays,
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
 import { HourDots, liveMinutes, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
@@ -71,8 +75,44 @@ export default function ManagerEntriesPage() {
     enabled: !!employeeId,
   });
 
+  // Smart defaults: this person's last 28 days, skipping their approved leave
+  // and public holidays; the rostered shift on a day that has one.
+  const recentWin = useMemo(() => recentWindow(), []);
+  const recent = useQuery({
+    queryKey: ["manager-entries", employeeId, "recent", recentWin.from.toISOString()],
+    queryFn: () =>
+      apiGet<{ entries: EntryRow[] }>(
+        `/manager/entries?employeeId=${employeeId}&from=${recentWin.from.toISOString()}&to=${new Date().toISOString()}`,
+      ),
+    enabled: !!employeeId,
+  });
+  const leave = useQuery({
+    queryKey: ["manager-leave", employeeId],
+    queryFn: () =>
+      apiGet<{ leave: { startDate: string; endDate: string }[] }>(
+        `/manager/leave?employeeId=${employeeId}&from=${localDay(recentWin.from)}&to=${localDay()}`,
+      ),
+    enabled: !!employeeId,
+  });
+  const roster = useQuery({
+    queryKey: ["roster-all", localDay(start), localDay(end)],
+    queryFn: () =>
+      apiGet<{ shifts: { employeeId: string; shiftDate: string; startMin: number; endMin: number }[] }>(
+        `/roster?from=${localDay(start)}&to=${localDay(end)}`,
+      ),
+    enabled: !!employeeId,
+  });
+  const holidayDays = useHolidayDays(!!employeeId);
+
   const entries = useMemo(() => list.data?.entries ?? [], [list.data]);
-  const typical = useMemo(() => typicalFrom(entries), [entries]);
+  const recentEntries = useMemo(() => recent.data?.entries ?? entries, [recent.data, entries]);
+  const typical = useMemo(() => typicalFrom(recentEntries), [recentEntries]);
+  const skipDays = useMemo(
+    () => new Set([...holidayDays, ...(leave.data?.leave ?? []).flatMap((l) => daysBetween(l.startDate, l.endDate))]),
+    [holidayDays, leave.data],
+  );
+  const shiftOn = (day: string) =>
+    roster.data?.shifts.find((s) => s.employeeId === employeeId && s.shiftDate === day);
   // Days newest first; start/finishes inside a day in time order.
   const days = useMemo(() => {
     const m = new Map<string, EntryRow[]>();
@@ -207,7 +247,7 @@ export default function ManagerEntriesPage() {
             variant="outline"
             className="self-start"
             onClick={() => {
-              const day = suggestMissingDay(entries, typical);
+              const day = suggestMissingDay(recentEntries, typical, skipDays);
               setSelected(day);
               setEditing({ day, addNew: true });
             }}
@@ -225,7 +265,7 @@ export default function ManagerEntriesPage() {
           focusId={editing.focusId}
           addNew={editing.addNew}
           defaultDay={editing.day}
-          typical={typical}
+          typical={typicalForDay(typical, shiftOn(editing.day))}
           mode="manager"
           employeeId={employeeId ?? undefined}
           onClose={() => setEditing(null)}

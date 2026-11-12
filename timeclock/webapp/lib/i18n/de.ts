@@ -430,6 +430,7 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch2:BOARD_DEFAULTS — add this area's keys directly below ====
+  "myHours.nextDay": "nächster Tag",
 
 
 };

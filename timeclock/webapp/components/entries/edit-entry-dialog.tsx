@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import { useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, Undo2 } from "lucide-react";
-import { api, apiPatch, apiPost } from "@/lib/api-client";
+import { api, apiGet, apiPatch, apiPost } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
@@ -79,7 +79,7 @@ export function typicalFrom(entries: EntryRow[]): Typical {
   for (const e of entries) byDay.set(e.day, [...(byDay.get(e.day) ?? []), e]);
   const starts: number[] = [];
   const ends: number[] = [];
-  const wd = new Map<number, number>();
+  const wd = new Map<number, number>(); // weekday -> days worked on it
   for (const [day, es] of byDay) {
     starts.push(Math.min(...es.map((e) => minOfDay(e.clockIn))));
     const outs = es.filter((e) => e.clockOut).map((e) => minOfDay(e.clockOut!));
@@ -89,16 +89,57 @@ export function typicalFrom(entries: EntryRow[]): Typical {
   }
   const s = median(starts);
   const e = median(ends);
+  // Usual = worked on 2+ of them (e.g. 2 of the last 4 Mondays over 28 days),
+  // so a one-off Saturday doesn't count. Too little history: any worked day.
+  const usual = [...wd].filter(([, n]) => n >= 2).map(([w]) => w);
   return {
     start: Number.isFinite(s) ? hhmm(s) : "08:00",
     end: Number.isFinite(e) && e > s ? hhmm(e) : "16:30",
-    weekdays: wd.size ? [...wd.keys()] : [1, 2, 3, 4, 5],
+    weekdays: usual.length ? usual : wd.size ? [...wd.keys()] : [1, 2, 3, 4, 5],
   };
 }
 
-/** Most recent usual workday (today back 14 days) with nothing recorded. */
-export function suggestMissingDay(entries: EntryRow[], typical: Typical): string {
-  const have = new Set(entries.map((e) => e.day));
+/** Usual hours, but the rostered shift's times on a day that has one. */
+export function typicalForDay(typical: Typical, shift?: { startMin: number; endMin: number } | null): Typical {
+  return shift ? { ...typical, start: hhmm(shift.startMin), end: hhmm(Math.min(shift.endMin, 1439)) } : typical;
+}
+
+/** Every YYYY-MM-DD from `from` to `to` inclusive (leave ranges). */
+export function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (const d = new Date(`${from}T12:00:00`); localDay(d) <= to; d.setDate(d.getDate() + 1)) out.push(localDay(d));
+  return out;
+}
+
+/** Window the smart defaults learn from: the last 28 days (not just the visible month). */
+export function recentWindow(now = new Date()): { from: Date; to: Date } {
+  const from = new Date(now);
+  from.setDate(from.getDate() - 28);
+  from.setHours(0, 0, 0, 0);
+  return { from, to: now };
+}
+
+/** Public holidays (YYYY-MM-DD) in the years the last 28 days touch. */
+export function useHolidayDays(enabled: boolean): string[] {
+  const years = [...new Set([recentWindow().from.getFullYear(), new Date().getFullYear()])];
+  const q = useQuery({
+    queryKey: ["holidays", ...years],
+    queryFn: async () =>
+      (await Promise.all(years.map((y) => apiGet<{ holidays: { date: string }[] }>(`/holidays?year=${y}`)))).flatMap(
+        (r) => r.holidays.map((h) => h.date),
+      ),
+    enabled,
+    staleTime: Infinity,
+  });
+  return q.data ?? [];
+}
+
+/**
+ * Most recent usual workday (today back 14 days) with nothing recorded,
+ * skipping `skip` days (approved leave, public holidays).
+ */
+export function suggestMissingDay(entries: EntryRow[], typical: Typical, skip?: ReadonlySet<string>): string {
+  const have = new Set([...entries.map((e) => e.day), ...(skip ?? [])]);
   const d = new Date();
   // Today only counts once their usual start has passed.
   const [sh, sm] = typical.start.split(":").map(Number);
@@ -109,11 +150,36 @@ export function suggestMissingDay(entries: EntryRow[], typical: Typical): string
   return localDay();
 }
 
+/** `hm` (HH:MM) on `anchor`'s date, or the next day when that's before `anchor` (overnight). */
+export function rollAfter(anchor: string, hm: string): string {
+  if (!hm || !anchor) return "";
+  const same = `${anchor.slice(0, 10)}T${hm}`;
+  if (ms(same) >= ms(anchor)) return same;
+  const d = new Date(`${anchor.slice(0, 10)}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  return `${localDay(d)}T${hm}`;
+}
+const hmOf = (local: string) => local.slice(11, 16);
+
+/** New clock-in time: the finish and breaks re-anchor after it (keeps overnight right). */
+function withClockIn(d: EntryDraft, hm: string, day: string): Partial<EntryDraft> {
+  if (!hm) return { cin: "" };
+  const cin = `${(d.cin || day).slice(0, 10)}T${hm}`;
+  return {
+    cin,
+    cout: d.cout && rollAfter(cin, hmOf(d.cout)),
+    brks: d.brks.map((b) => {
+      const start = b.start && rollAfter(cin, hmOf(b.start));
+      return { ...b, start, end: b.end && start ? rollAfter(start, hmOf(b.end)) : b.end };
+    }),
+  };
+}
+
 /** Likely missing start/finish on a day: the biggest hole inside usual hours. */
 function suggestSlot(drafts: EntryDraft[], day: string, typical: Typical): [string, string] {
   const live = drafts.filter((d) => !d.removed && d.cin).sort((a, b) => ms(a.cin) - ms(b.cin));
   const tStart = `${day}T${typical.start}`;
-  const tEnd = `${day}T${typical.end}`;
+  const tEnd = rollAfter(tStart, typical.end);
   if (live.length === 0) return [tStart, tEnd];
   const edges: [string, string][] = [[tStart, live[0].cin]];
   for (let i = 1; i < live.length; i++) if (live[i - 1].cout) edges.push([live[i - 1].cout, live[i].cin]);
@@ -186,6 +252,27 @@ export function Textarea({ className, ...props }: React.ComponentProps<"textarea
       )}
       {...props}
     />
+  );
+}
+
+/** Time-of-day input for a draft value ("YYYY-MM-DDTHH:MM"); flags a time on the day after `day`. */
+function TimeInput({
+  value,
+  day,
+  onTime,
+  ...props
+}: { value: string; day: string; onTime: (hm: string) => void } & Omit<
+  React.ComponentProps<typeof Input>,
+  "value" | "onChange" | "type"
+>) {
+  const t = useT();
+  return (
+    <div className="flex items-center gap-2">
+      <Input type="time" value={hmOf(value)} onChange={(e) => onTime(e.target.value)} {...props} />
+      {value && value.slice(0, 10) > day && (
+        <span className="shrink-0 text-xs text-amber-400">{t("myHours.nextDay")}</span>
+      )}
+    </div>
   );
 }
 
@@ -578,11 +665,11 @@ export function EditEntryDialog({
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="flex flex-col gap-1">
                           <Label className="text-xs">{t("myHours.clockIn")}</Label>
-                          <Input
-                            type="datetime-local"
+                          <TimeInput
                             value={d.cin}
+                            day={day}
                             disabled={d.ro}
-                            onChange={(e) => setD(d.key, { cin: e.target.value })}
+                            onTime={(hm) => setD(d.key, withClockIn(d, hm, day))}
                           />
                         </div>
                         <div className="flex flex-col gap-1">
@@ -590,11 +677,11 @@ export function EditEntryDialog({
                           {d.still ? (
                             <p className="flex min-h-9 items-center text-sm text-muted-foreground">{t("myHours.stillClockedIn")}</p>
                           ) : (
-                            <Input
-                              type="datetime-local"
+                            <TimeInput
                               value={d.cout}
+                              day={day}
                               disabled={d.ro}
-                              onChange={(e) => setD(d.key, { cout: e.target.value })}
+                              onTime={(hm) => setD(d.key, { cout: rollAfter(d.cin, hm) })}
                             />
                           )}
                         </div>
@@ -611,7 +698,7 @@ export function EditEntryDialog({
                                     cout:
                                       d.cin.slice(0, 10) === localDay()
                                         ? toLocal(new Date().toISOString())
-                                        : `${d.cin.slice(0, 10)}T${usual.end}`,
+                                        : rollAfter(d.cin, usual.end),
                                   }),
                               })
                             }
@@ -625,41 +712,46 @@ export function EditEntryDialog({
                         .map((b) => (
                           <div
                             key={b.key}
-                            className="grid grid-cols-[1fr_1fr] items-center gap-2 rounded-md bg-muted/30 p-2 sm:grid-cols-[1fr_1fr_auto_auto]"
+                            className="grid grid-cols-1 items-center gap-2 rounded-md bg-muted/30 p-2 sm:grid-cols-[1fr_1fr_auto_auto]"
                           >
-                            <Input
+                            <TimeInput
                               aria-label={t("myHours.breakStartLabel")}
-                              type="datetime-local"
                               value={b.start}
+                              day={day}
                               disabled={d.ro}
-                              onChange={(e) => setBrk(d.key, b.key, { start: e.target.value })}
+                              onTime={(hm) => {
+                                const start = rollAfter(d.cin, hm);
+                                setBrk(d.key, b.key, { start, end: b.end && start ? rollAfter(start, hmOf(b.end)) : b.end });
+                              }}
                             />
-                            <Input
+                            <TimeInput
                               aria-label={t("myHours.breakEndLabel")}
-                              type="datetime-local"
                               value={b.end}
+                              day={day}
                               disabled={d.ro}
-                              onChange={(e) => setBrk(d.key, b.key, { end: e.target.value })}
+                              onTime={(hm) => setBrk(d.key, b.key, { end: rollAfter(b.start || d.cin, hm) })}
                             />
-                            <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Switch
-                                checked={b.paid}
-                                disabled={d.ro}
-                                onCheckedChange={(v) => setBrk(d.key, b.key, { paid: v })}
-                              />
-                              {t("myHours.breakPaidToggle")}
-                            </label>
-                            {!d.ro && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="justify-self-end text-destructive"
-                                aria-label={t("myHours.removeBreak")}
-                                onClick={() => removeBrk(d.key, b.key)}
-                              >
-                                <Trash2 /> <span className="sm:sr-only">{t("myHours.removeBreak")}</span>
-                              </Button>
-                            )}
+                            <div className="flex items-center justify-between gap-2 sm:contents">
+                              <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Switch
+                                  checked={b.paid}
+                                  disabled={d.ro}
+                                  onCheckedChange={(v) => setBrk(d.key, b.key, { paid: v })}
+                                />
+                                {t("myHours.breakPaidToggle")}
+                              </label>
+                              {!d.ro && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="justify-self-end text-destructive"
+                                  aria-label={t("myHours.removeBreak")}
+                                  onClick={() => removeBrk(d.key, b.key)}
+                                >
+                                  <Trash2 /> <span className="sm:sr-only">{t("myHours.removeBreak")}</span>
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         ))}
                       {!d.ro && (
