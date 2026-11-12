@@ -434,6 +434,27 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ROSTER_HOURS — add this area's keys directly below ====
+  "roster.next": "Nächste: {when}",
+  "roster.onNow": "jetzt bis {time}",
+  "roster.today": "Heute",
+  "roster.noUpcoming": "Keine anstehenden Schichten.",
+  "roster.weekTotals": "Geplant {rostered} · bisher gearbeitet {worked}",
+  "roster.off": "Frei",
+  "roster.thisWeek": "Diese Woche",
+  "myHours.weekOf": "Woche ab {date}",
+  "myHours.weekTotal": "{worked} von üblich {usual}",
+  "myHours.weekDays": "{n} Tag(e)",
+  "myHours.rosteredShift": "Geplant {time}",
+  "myHours.nothingRostered": "Nichts geplant",
+  "myHours.nothingRecorded": "Nichts erfasst",
+  "calendar.prevMonth": "Vorheriger Monat",
+  "calendar.nextMonth": "Nächster Monat",
+  "calendar.legendApproved": "Genehmigt",
+  "calendar.legendHours": "Mit Stunden",
+  "calendar.legendAttention": "Prüfen",
+  "calendar.legendLeave": "Abwesenheit",
+  "calendar.legendHoliday": "Feiertag",
+  "calendar.legendMissed": "Üblicher Arbeitstag, nichts erfasst",
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====

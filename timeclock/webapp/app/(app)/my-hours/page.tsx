@@ -5,7 +5,7 @@ import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CircleCheck, MessageCircleQuestion, Pencil, Plus, Send } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleCheck, MessageCircleQuestion, Pencil, Plus, Send } from "lucide-react";
 import { apiGet, apiPost } from "@/lib/api-client";
 import {
   EditEntryDialog,
@@ -20,9 +20,19 @@ import {
   useHolidayDays,
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
-import { HourDots, liveMinutes, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
+import {
+  HourDots,
+  liveMinutes,
+  MonthCalendar,
+  monthGrid,
+  monthStart,
+  shiftTime,
+} from "@/components/entries/month-calendar";
 import { useSession } from "@/hooks/use-session";
+import { fmtH } from "@/hooks/use-clock-context";
+import { usualWeekMin } from "@/lib/clock-context";
 import { useLocale } from "@/lib/format";
+import { groupByWeek, weekStartDay } from "@/lib/pay-helpers";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -142,7 +152,7 @@ export default function MyHoursPage() {
   const [selected, setSelected] = useState<string | null>(localDay());
   const [editing, setEditing] = useState<{ day: string; focusId?: string; addNew?: boolean } | null>(null);
 
-  const { start: from, end: to } = useMemo(() => monthGrid(month), [month]);
+  const { start: from, end: to } = useMemo(() => monthGrid(month, loc.weekStart), [month, loc.weekStart]);
   const list = useQuery({
     queryKey: ["my-hours", from.toISOString()],
     queryFn: () =>
@@ -207,17 +217,27 @@ export default function MyHoursPage() {
   const entries = useMemo(() => list.data?.entries ?? [], [list.data]);
   const recentEntries = useMemo(() => recent.data?.entries ?? entries, [recent.data, entries]);
   const typical = useMemo(() => typicalFrom(recentEntries), [recentEntries]);
-  const skipDays = useMemo(
+  const leaveDays = useMemo(
     () =>
-      new Set([
-        ...holidayDays,
-        ...(myLeave.data?.requests ?? [])
+      new Set(
+        (myLeave.data?.requests ?? [])
           .filter((r) => r.status === "approved")
           .flatMap((r) => daysBetween(r.startDate, r.endDate)),
-      ]),
-    [holidayDays, myLeave.data],
+      ),
+    [myLeave.data],
   );
+  const holidaySet = useMemo(() => new Set(holidayDays), [holidayDays]);
+  const skipDays = useMemo(() => new Set([...holidaySet, ...leaveDays]), [holidaySet, leaveDays]);
   const shiftOn = (day: string) => roster.data?.shifts.find((s) => s.shiftDate === day);
+  // Usual week = average worked day (last 28 days) × usual workdays.
+  const usualWeek = useMemo(() => {
+    const today = localDay();
+    const past = recentEntries.filter((e) => e.day < today && e.workedMinutes != null);
+    return usualWeekMin(
+      past.map((e) => ({ day: e.day, minutes: e.workedMinutes! })),
+      typical.weekdays.length,
+    );
+  }, [recentEntries, typical]);
 
   // Group by facility day, newest first; entries inside a day oldest first.
   const days = useMemo(() => {
@@ -227,6 +247,24 @@ export default function MyHoursPage() {
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([day, es]) => ({ day, entries: es.sort((a, b) => +new Date(a.clockIn) - +new Date(b.clockIn)) }));
   }, [entries]);
+  // Day cards grouped by week, the selected day's week first (and expanded,
+  // with the selected day on top); other weeks collapse to a subtotal row.
+  const selectedWeek = selected ? weekStartDay(`${selected}T12:00:00`, loc.weekStart) : null;
+  const weeks = useMemo(() => {
+    const g = groupByWeek(days, (d) => `${d.day}T12:00:00`, loc.weekStart);
+    const sel = g.filter((w) => w.week === selectedWeek);
+    for (const w of sel) w.rows = [...w.rows.filter((d) => d.day === selected), ...w.rows.filter((d) => d.day !== selected)];
+    return [...sel, ...g.filter((w) => w.week !== selectedWeek)];
+  }, [days, loc.weekStart, selected, selectedWeek]);
+  // Weeks the user flipped from their default (selected = open, others = closed).
+  const [toggledWeeks, setToggledWeeks] = useState<Set<string>>(new Set());
+  useEffect(() => setToggledWeeks(new Set()), [selectedWeek]);
+  const toggleWeek = (w: string) =>
+    setToggledWeeks((s) => {
+      const n = new Set(s);
+      if (!n.delete(w)) n.add(w);
+      return n;
+    });
   // "Open this day" from a dispute: jump the calendar there, then open the
   // editor once that month's entries are in.
   const [editOnLoad, setEditOnLoad] = useState<string | null>(null);
@@ -284,6 +322,101 @@ export default function MyHoursPage() {
       </Container>
     );
 
+  const renderDay = ({ day, entries: es }: { day: string; entries: EntryRow[] }) => {
+    const approved = es.some((e) => e.dayApproved);
+    const dayMin = es.reduce((a, e) => a + liveMinutes(e), 0);
+    const waiting = pendingByDay.get(day) ?? 0;
+    const corr = correctionByDay.get(day);
+    // Approved day with several start/finishes: pick which one to correct.
+    const pickEntry = approved && es.length > 1;
+    return (
+      <Card key={day} className={day === selected ? "border-primary/60" : undefined}>
+        <CardContent className="flex flex-col gap-3">
+          <button type="button" className="flex flex-wrap items-center gap-2 text-left" onClick={() => setSelected(day)}>
+            <span className="font-medium">{loc.date(`${day}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
+            {approved ? (
+              <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
+                <CircleCheck className="size-3" /> {t("myHours.dayApproved")}
+              </Badge>
+            ) : (
+              <Badge variant="secondary">{t("myHours.dayOpen")}</Badge>
+            )}
+            {waiting > 0 && (
+              <Badge className="border-transparent bg-amber-500/15 text-amber-300">
+                {t("myHours.changesWaiting", { n: waiting })}
+              </Badge>
+            )}
+            {corr && (
+              <Badge
+                className={`border-transparent ${
+                  corr.status === "pending"
+                    ? "bg-amber-500/15 text-amber-300"
+                    : corr.status === "approved"
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-red-500/15 text-red-300"
+                }`}
+              >
+                {t(
+                  corr.status === "pending"
+                    ? "myHours.correctionPending"
+                    : corr.status === "approved"
+                      ? "myHours.correctionApproved"
+                      : "myHours.correctionDeclined",
+                )}
+              </Badge>
+            )}
+            <span className="ml-auto font-mono text-sm">{hrs(dayMin)}</span>
+          </button>
+          {corr?.reviewNote && (
+            <p className="text-xs text-muted-foreground">{t("myHours.correctionNote", { note: corr.reviewNote })}</p>
+          )}
+
+          <HourDots day={day} entries={es} />
+
+          <div className="flex flex-col gap-1">
+            {es.map((e) => (
+              <div key={e.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
+                {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}
+                <span className="text-muted-foreground">{hrs(liveMinutes(e))}</span>
+                <span className="font-sans text-xs text-muted-foreground">
+                  {t("myHours.breaks", { value: breaksLabel(e, t) })}
+                  {e.job && <> · {e.job.name}</>}
+                </span>
+                {e.edited && (
+                  <Badge className="border-transparent bg-amber-500/15 font-sans text-amber-300">{t("myHours.edited")}</Badge>
+                )}
+                {e.paidAt && (
+                  <Badge className="border-transparent bg-emerald-500/15 font-sans text-emerald-300">{t("myHours.paid")}</Badge>
+                )}
+                {pickEntry && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="ml-auto min-h-11 font-sans sm:min-h-8"
+                    onClick={() => setEditing({ day, focusId: e.id })}
+                  >
+                    <Pencil /> {t("myHours.fixThis")}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {!pickEntry && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="min-h-11 self-start sm:min-h-9"
+              onClick={() => setEditing({ day, focusId: es[0]?.id })}
+            >
+              <Pencil /> {t("myHours.fixTimes")}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <Container>
       {(disputes.data?.modifications.length ?? 0) > 0 && (
@@ -315,6 +448,9 @@ export default function MyHoursPage() {
             ...correctionByDay.keys(),
           ])
         }
+        leaveDays={leaveDays}
+        holidayDays={holidaySet}
+        usualWeekdays={recent.isSuccess ? typical.weekdays : undefined}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -342,7 +478,13 @@ export default function MyHoursPage() {
         <Card className="border-primary/60">
           <CardContent className="flex flex-wrap items-center gap-3">
             <span className="font-medium">{loc.date(`${selected}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
-            <span className="text-sm text-muted-foreground">{t("myHours.noEntries")}</span>
+            <span className="text-sm text-muted-foreground">
+              {(() => {
+                const s = shiftOn(selected);
+                if (s) return t("myHours.rosteredShift", { time: `${shiftTime(loc, s.startMin)}–${shiftTime(loc, s.endMin)}` });
+                return selected > localDay() ? t("myHours.nothingRostered") : t("myHours.nothingRecorded");
+              })()}
+            </span>
             {selected <= localDay() && (
               <Button size="sm" className="ml-auto" onClick={() => setEditing({ day: selected, addNew: true })}>
                 <Plus /> {t("myHours.addTime")}
@@ -352,98 +494,28 @@ export default function MyHoursPage() {
         </Card>
       )}
 
-      {[...days.filter((d) => d.day === selected), ...days.filter((d) => d.day !== selected)].map(({ day, entries: es }) => {
-        const approved = es.some((e) => e.dayApproved);
-        const dayMin = es.reduce((a, e) => a + liveMinutes(e), 0);
-        const waiting = pendingByDay.get(day) ?? 0;
-        const corr = correctionByDay.get(day);
-        // Approved day with several start/finishes: pick which one to correct.
-        const pickEntry = approved && es.length > 1;
+      {weeks.map(({ week, rows }) => {
+        const open = (week === selectedWeek) !== toggledWeeks.has(week);
+        const weekMin = rows.reduce((a, d) => a + d.entries.reduce((b, e) => b + liveMinutes(e), 0), 0);
         return (
-          <Card key={day} className={day === selected ? "border-primary/60" : undefined}>
-            <CardContent className="flex flex-col gap-3">
-              <button type="button" className="flex flex-wrap items-center gap-2 text-left" onClick={() => setSelected(day)}>
-                <span className="font-medium">{loc.date(`${day}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
-                {approved ? (
-                  <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
-                    <CircleCheck className="size-3" /> {t("myHours.dayApproved")}
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary">{t("myHours.dayOpen")}</Badge>
-                )}
-                {waiting > 0 && (
-                  <Badge className="border-transparent bg-amber-500/15 text-amber-300">
-                    {t("myHours.changesWaiting", { n: waiting })}
-                  </Badge>
-                )}
-                {corr && (
-                  <Badge
-                    className={`border-transparent ${
-                      corr.status === "pending"
-                        ? "bg-amber-500/15 text-amber-300"
-                        : corr.status === "approved"
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : "bg-red-500/15 text-red-300"
-                    }`}
-                  >
-                    {t(
-                      corr.status === "pending"
-                        ? "myHours.correctionPending"
-                        : corr.status === "approved"
-                          ? "myHours.correctionApproved"
-                          : "myHours.correctionDeclined",
-                    )}
-                  </Badge>
-                )}
-                <span className="ml-auto font-mono text-sm">{hrs(dayMin)}</span>
-              </button>
-              {corr?.reviewNote && (
-                <p className="text-xs text-muted-foreground">{t("myHours.correctionNote", { note: corr.reviewNote })}</p>
-              )}
-
-              <HourDots day={day} entries={es} />
-
-              <div className="flex flex-col gap-1">
-                {es.map((e) => (
-                  <div key={e.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
-                    {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}
-                    <span className="text-muted-foreground">{hrs(liveMinutes(e))}</span>
-                    <span className="font-sans text-xs text-muted-foreground">
-                      {t("myHours.breaks", { value: breaksLabel(e, t) })}
-                      {e.job && <> · {e.job.name}</>}
-                    </span>
-                    {e.edited && (
-                      <Badge className="border-transparent bg-amber-500/15 font-sans text-amber-300">{t("myHours.edited")}</Badge>
-                    )}
-                    {e.paidAt && (
-                      <Badge className="border-transparent bg-emerald-500/15 font-sans text-emerald-300">{t("myHours.paid")}</Badge>
-                    )}
-                    {pickEntry && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="ml-auto min-h-11 font-sans sm:min-h-8"
-                        onClick={() => setEditing({ day, focusId: e.id })}
-                      >
-                        <Pencil /> {t("myHours.fixThis")}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {!pickEntry && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="min-h-11 self-start sm:min-h-9"
-                  onClick={() => setEditing({ day, focusId: es[0]?.id })}
-                >
-                  <Pencil /> {t("myHours.fixTimes")}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+          <React.Fragment key={week}>
+            <button
+              type="button"
+              className="flex min-h-11 items-center gap-2 rounded-md px-1 text-left text-sm hover:bg-muted/60"
+              aria-expanded={open}
+              onClick={() => toggleWeek(week)}
+            >
+              {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+              <span className="font-medium">{t("myHours.weekOf", { date: loc.date(`${week}T12:00:00`, { day: "numeric", month: "short" }) })}</span>
+              {!open && <span className="text-xs text-muted-foreground">{t("myHours.weekDays", { n: rows.length })}</span>}
+              <span className="ml-auto font-mono">
+                {usualWeek
+                  ? t("myHours.weekTotal", { worked: fmtH(t, loc, weekMin), usual: fmtH(t, loc, usualWeek) })
+                  : fmtH(t, loc, weekMin)}
+              </span>
+            </button>
+            {open && rows.map((d) => renderDay(d))}
+          </React.Fragment>
         );
       })}
 

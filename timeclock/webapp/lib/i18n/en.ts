@@ -435,6 +435,27 @@ const en = {
 
 
   // ==== batch3:ROSTER_HOURS — add this area's keys directly below ====
+  "roster.next": "Next: {when}",
+  "roster.onNow": "on now until {time}",
+  "roster.today": "Today",
+  "roster.noUpcoming": "No upcoming shifts.",
+  "roster.weekTotals": "Rostered {rostered} · worked {worked} so far",
+  "roster.off": "Off",
+  "roster.thisWeek": "This week",
+  "myHours.weekOf": "Week of {date}",
+  "myHours.weekTotal": "{worked} of usual {usual}",
+  "myHours.weekDays": "{n} day(s)",
+  "myHours.rosteredShift": "Rostered {time}",
+  "myHours.nothingRostered": "Nothing rostered",
+  "myHours.nothingRecorded": "Nothing recorded",
+  "calendar.prevMonth": "Previous month",
+  "calendar.nextMonth": "Next month",
+  "calendar.legendApproved": "Approved",
+  "calendar.legendHours": "Has hours",
+  "calendar.legendAttention": "Needs attention",
+  "calendar.legendLeave": "Leave",
+  "calendar.legendHoliday": "Public holiday",
+  "calendar.legendMissed": "Usual day, nothing recorded",
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====
