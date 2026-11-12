@@ -270,7 +270,7 @@ function TimeInput({
     <div className="flex items-center gap-2">
       <Input type="time" value={hmOf(value)} onChange={(e) => onTime(e.target.value)} {...props} />
       {value && value.slice(0, 10) > day && (
-        <span className="shrink-0 text-xs text-amber-400">{t("myHours.nextDay")}</span>
+        <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">{t("myHours.nextDay")}</span>
       )}
     </div>
   );

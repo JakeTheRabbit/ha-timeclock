@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { dayKey, hhmm, hours, localParts, type Slice, type SliceEntry } from "@/lib/insights";
 import { useLocale } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { entriesHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import { seriesVar, useWidth } from "./charts";
@@ -23,6 +24,7 @@ export function monthGrid(month: string, weekStart: 0 | 1 = 1): string[] {
 
 function ShiftLine({ e, slice }: { e: SliceEntry; slice: Slice }) {
   const p = slice.employees.find((x) => x.id === e.employeeId);
+  const t = useT();
   const flagged = e.fraudFlags.includes("no_door_access");
   return (
     <li>
@@ -33,14 +35,14 @@ function ShiftLine({ e, slice }: { e: SliceEntry; slice: Slice }) {
         <span className="size-2.5 shrink-0 rounded-sm" style={{ background: seriesVar(p?.slot ?? 0) }} />
         <span className="w-28 truncate font-medium">{p?.displayName ?? "?"}</span>
         <span className="flex-1 font-mono text-xs text-muted-foreground">
-          {hhmm(localParts(e.clockIn).minute)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : "on shift"}
+          {hhmm(localParts(e.clockIn).minute)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : t("insights.onShift")}
         </span>
         {flagged && (
           <span className="flex items-center gap-1 text-xs text-[var(--warning-color)]">
-            <AlertTriangle className="size-3.5" /> no swipe
+            <AlertTriangle className="size-3.5" /> {t("insights.noSwipe")}
           </span>
         )}
-        {e.edited && <span className="text-xs text-muted-foreground">edited</span>}
+        {e.edited && <span className="text-xs text-muted-foreground">{t("status.edited")}</span>}
         <span className="w-14 text-right font-mono text-xs tabular-nums">{hours(e.workedMinutes)}</span>
       </Link>
     </li>
@@ -52,6 +54,7 @@ function ShiftLine({ e, slice }: { e: SliceEntry; slice: Slice }) {
  * shifts carry a warning icon). Tap a day for its shifts and roster.
  */
 export function MonthCalendar({ month, slice, initialOpen = null }: { month: string; slice: Slice; initialOpen?: string | null }) {
+  const t = useT();
   const loc = useLocale();
   const days = monthGrid(month, loc.weekStart);
   const today = dayKey(new Date());
@@ -93,7 +96,7 @@ export function MonthCalendar({ month, slice, initialOpen = null }: { month: str
                 !inMonth && "opacity-40",
                 open === d && "ring-2 ring-inset ring-[var(--primary)]",
               )}
-              aria-label={`${d}: ${es.length} shift(s), ${hours(total)}`}
+              aria-label={`${d}: ${t(es.length === 1 ? "insights.shifts.one" : "insights.shifts.other", { n: es.length })}, ${hours(total)}`}
             >
               <span className={cn("text-xs", d === today && "font-bold text-[var(--primary)]")}>{Number(d.slice(8))}</span>
               {perPerson(es)
@@ -102,12 +105,12 @@ export function MonthCalendar({ month, slice, initialOpen = null }: { month: str
                   <span key={id} className="flex items-center gap-1 truncate text-[10px] leading-tight sm:text-[11px]">
                     <span className="size-2 shrink-0 rounded-sm" style={{ background: seriesVar(nameOf(id)?.slot ?? 0) }} />
                     <span className="truncate">{nameOf(id)?.displayName}</span>
-                    {v.flagged && <AlertTriangle className="size-3 shrink-0 text-[var(--warning-color)]" aria-label="no door swipe" />}
+                    {v.flagged && <AlertTriangle className="size-3 shrink-0 text-[var(--warning-color)]" aria-label={t("pay.noDoorSwipe")} />}
                     <span className="ml-auto hidden tabular-nums text-muted-foreground sm:inline">{(v.min / 60).toFixed(1)}</span>
                   </span>
                 ))}
               {perPerson(es).length > 3 && (
-                <span className="text-[10px] text-muted-foreground">+{perPerson(es).length - 3} more</span>
+                <span className="text-[10px] text-muted-foreground">{t("insights.more", { n: perPerson(es).length - 3 })}</span>
               )}
             </button>
           );
@@ -121,10 +124,10 @@ export function MonthCalendar({ month, slice, initialOpen = null }: { month: str
               {loc.date(`${open}T12:00:00Z`, { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" })}
             </span>
             <span className="text-sm text-muted-foreground">
-              {hours(openEntries.reduce((a, e) => a + e.workedMinutes, 0))} total
+              {t("insights.totalN", { value: hours(openEntries.reduce((a, e) => a + e.workedMinutes, 0)) })}
             </span>
           </div>
-          {openEntries.length === 0 && <p className="text-sm text-muted-foreground">Nobody clocked in.</p>}
+          {openEntries.length === 0 && <p className="text-sm text-muted-foreground">{t("insights.nobodyIn")}</p>}
           <ul className="divide-y divide-border">
             {openEntries.map((e) => (
               <ShiftLine key={e.id} e={e} slice={slice} />
@@ -132,10 +135,11 @@ export function MonthCalendar({ month, slice, initialOpen = null }: { month: str
           </ul>
           {openRoster.length > 0 && (
             <div className="mt-2 text-xs text-muted-foreground">
-              Rostered:{" "}
-              {openRoster
-                .map((r) => `${nameOf(r.employeeId)?.displayName} ${hhmm(r.startMin)}–${hhmm(r.endMin)}`)
-                .join(" · ")}
+              {t("leaveApprove.rostered", {
+                names: openRoster
+                  .map((r) => `${nameOf(r.employeeId)?.displayName} ${hhmm(r.startMin)}–${hhmm(r.endMin)}`)
+                  .join(" · "),
+              })}
             </div>
           )}
         </div>
@@ -149,6 +153,7 @@ export function MonthCalendar({ month, slice, initialOpen = null }: { month: str
  * 24h-per-day track; rostered shifts sit behind as hollow outlines.
  */
 export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: Slice }) {
+  const t = useT();
   const loc = useLocale();
   const router = useRouter();
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -174,7 +179,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
   return (
     <div ref={ref} className="relative w-full" onMouseLeave={() => setTip(null)}>
       {width > 0 && (
-        <svg width={width} height={people.length * rowH + 24} role="img" aria-label="Shifts this week by person">
+        <svg width={width} height={people.length * rowH + 24} role="img" aria-label={t("insights.timelineAria")}>
           {days.map((d, i) => (
             <g key={d}>
               <line x1={labelW + i * dayW} x2={labelW + i * dayW} y1={0} y2={people.length * rowH} stroke="var(--border)" />
@@ -231,10 +236,10 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
                               {p.displayName} · {loc.date(e.clockIn)}
                             </div>
                             <div className="font-mono">
-                              {hhmm(start)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : "on shift"} · {hours(e.workedMinutes)}
+                              {hhmm(start)} → {e.clockOut ? hhmm(localParts(e.clockOut).minute) : t("insights.onShift")} · {hours(e.workedMinutes)}
                             </div>
-                            {flagged && <div className="text-[var(--warning-color)]">⚠ no door swipe before clock-in</div>}
-                            {e.edited && <div className="text-muted-foreground">edited</div>}
+                            {flagged && <div className="text-[var(--warning-color)]">⚠ {t("insights.noSwipeBefore")}</div>}
+                            {e.edited && <div className="text-muted-foreground">{t("status.edited")}</div>}
                           </>
                         ),
                       });
@@ -250,7 +255,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
                         stroke={flagged ? "var(--warning-color)" : "none"}
                         strokeWidth={flagged ? 2 : 0}
                         tabIndex={0}
-                        aria-label={`${p.displayName} ${dayKey(e.clockIn)} ${hhmm(start)}, ${hours(e.workedMinutes)}${flagged ? ", no door swipe" : ""}`}
+                        aria-label={`${p.displayName} ${dayKey(e.clockIn)} ${hhmm(start)}, ${hours(e.workedMinutes)}${flagged ? `, ${t("pay.noDoorSwipe")}` : ""}`}
                         onMouseEnter={showTip}
                         onFocus={showTip}
                         onBlur={() => setTip(null)}
@@ -266,7 +271,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
           })}
         </svg>
       )}
-      {people.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No shifts this week.</p>}
+      {people.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">{t("insights.noShiftsWeek")}</p>}
       {tip && (
         <div
           role="tooltip"
@@ -276,7 +281,7 @@ export function WeekTimeline({ weekStart, slice }: { weekStart: string; slice: S
           {tip.body}
         </div>
       )}
-      <p className="mt-1 text-[11px] text-muted-foreground">Filled bar = worked (tap to open the day) · outline = rostered · amber edge = no door swipe</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">{t("insights.timelineLegend")}</p>
     </div>
   );
 }

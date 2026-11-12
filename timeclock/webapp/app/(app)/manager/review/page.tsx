@@ -9,10 +9,11 @@ import { apiGet, apiPost } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { entriesHref } from "@/lib/links";
-import { useT } from "@/lib/i18n";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { errMsg, localDay, Textarea, typicalFrom, type EntryRow } from "@/components/entries/edit-entry-dialog";
 import { HourDots, liveMinutes } from "@/components/entries/month-calendar";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, STATUS_TEXT } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -58,19 +59,13 @@ interface PersonDays {
   days: DaySummary[];
 }
 
-const KIND: Record<Kind, string> = {
-  entry_add: "Added time",
-  entry_edit: "Changed times",
-  entry_remove: "Removed time",
-  break_add: "Added break",
-  break_edit: "Changed break",
-  break_remove: "Removed break",
-};
-const STATUS_STYLE: Record<Status, string> = {
-  pending: "bg-amber-500/15 text-amber-300",
-  disputed: "bg-destructive/15 text-destructive",
-  acknowledged: "bg-emerald-500/15 text-emerald-300",
-  resolved: "bg-sky-500/15 text-sky-300",
+const KIND: Record<Kind, MessageKey> = {
+  entry_add: "myHours.kind.entry_add",
+  entry_edit: "myHours.kind.entry_edit",
+  entry_remove: "myHours.kind.entry_remove",
+  break_add: "myHours.kind.break_add",
+  break_edit: "myHours.kind.break_edit",
+  break_remove: "myHours.kind.break_remove",
 };
 
 const hrs = (min: number) => (min / 60).toFixed(2) + "h";
@@ -97,23 +92,25 @@ function weekOf(day: string) {
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return localDay(d);
 }
-const SKIP: Record<string, string> = {
-  open_entry: "still clocked in — close the shift first",
-  dispute_open: "open dispute — resolve it first",
-  already_approved: "already approved",
+const SKIP: Record<string, MessageKey> = {
+  open_entry: "review.skip.open_entry",
+  dispute_open: "review.skip.dispute_open",
+  already_approved: "review.skip.already_approved",
 };
-const REOPEN_CHIPS = ["Times need fixing", "Employee asked to change it", "Approved by mistake"];
+const REOPEN_CHIPS: MessageKey[] = ["review.chip.fix", "review.chip.asked", "review.chip.mistake"];
 
 function useSpan() {
   const loc = useLocale();
+  const t = useT();
   return (v: Record<string, unknown> | null): string => {
     if (!v) return "—";
     const a = (v.clockIn ?? v.startAt) as string | undefined;
     const b = (v.clockOut ?? v.endAt) as string | null | undefined;
     if (!a) return "—";
-    const span = `${loc.time(a)} → ${b ? loc.time(b) : "open"}`;
-    const extra = "paid" in v ? (v.paid ? " (paid)" : " (unpaid)") : "";
-    const brks = Array.isArray(v.breaks) && v.breaks.length ? ` · ${v.breaks.length} break(s)` : "";
+    const span = `${loc.time(a)} → ${b ? loc.time(b) : t("common.open")}`;
+    const extra = "paid" in v ? ` (${v.paid ? t("myHours.breakPaid") : t("myHours.breakUnpaid")})` : "";
+    const n = Array.isArray(v.breaks) ? v.breaks.length : 0;
+    const brks = n ? ` · ${t(n === 1 ? "review.breaks.one" : "review.breaks.other", { n })}` : "";
     return span + extra + brks;
   };
 }
@@ -152,8 +149,8 @@ function ModCard({ mod, myId, grouped }: { mod: Mod; myId: string; grouped?: boo
             </Link>
           </>
         )}
-        <Badge variant="secondary">{KIND[mod.kind]}</Badge>
-        <Badge className={`border-transparent capitalize ${STATUS_STYLE[mod.status]}`}>{mod.status}</Badge>
+        <Badge variant="secondary">{t(KIND[mod.kind])}</Badge>
+        <StatusBadge status={mod.status} />
         <span className="ml-auto text-xs text-muted-foreground">{loc.dateTime(mod.createdAt)}</span>
       </div>
       <div className="font-mono text-sm">
@@ -162,11 +159,11 @@ function ModCard({ mod, myId, grouped }: { mod: Mod; myId: string; grouped?: boo
         {mod.after && <span>{span(mod.after)}</span>}
       </div>
       <div className="rounded-md bg-muted px-3 py-2 text-sm">
-        <span className="text-xs text-muted-foreground">Reason: </span>
+        <span className="text-xs text-muted-foreground">{t("review.reason")} </span>
         {mod.reason}
       </div>
       {mod.status === "acknowledged" && mod.acknowledgedByName && (
-        <div className="text-xs text-muted-foreground">Seen by {mod.acknowledgedByName}</div>
+        <div className="text-xs text-muted-foreground">{t("review.seenBy", { name: mod.acknowledgedByName })}</div>
       )}
 
       {mod.messages.length > 0 && (
@@ -188,10 +185,10 @@ function ModCard({ mod, myId, grouped }: { mod: Mod; myId: string; grouped?: boo
       {mod.status === "pending" && !disputing && (
         <div className="grid grid-cols-2 gap-2">
           <Button disabled={act.isPending} onClick={() => act.mutate({ path: "acknowledge", body: {} })}>
-            <Check /> Acknowledge
+            <Check /> {t("review.acknowledge")}
           </Button>
           <Button variant="destructive" onClick={() => setDisputing(true)}>
-            <MessageCircleQuestion /> Dispute
+            <MessageCircleQuestion /> {t("review.dispute")}
           </Button>
         </div>
       )}
@@ -201,20 +198,20 @@ function ModCard({ mod, myId, grouped }: { mod: Mod; myId: string; grouped?: boo
             value={text}
             onChange={(e) => setText(e.target.value)}
             className="min-h-14"
-            placeholder={disputing ? `What's the problem? ${mod.employeeName} gets this message.` : "Reply…"}
+            placeholder={disputing ? t("review.disputePlaceholder", { name: mod.employeeName }) : t("review.replyPlaceholder")}
           />
           <div className="flex flex-wrap justify-end gap-2">
             {disputing ? (
               <>
                 <Button variant="secondary" onClick={() => setDisputing(false)}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button
                   variant="destructive"
                   disabled={text.trim().length < 3 || act.isPending}
                   onClick={() => act.mutate({ path: "dispute", body: { message: text } })}
                 >
-                  <Send /> Send dispute
+                  <Send /> {t("review.sendDispute")}
                 </Button>
               </>
             ) : (
@@ -224,13 +221,13 @@ function ModCard({ mod, myId, grouped }: { mod: Mod; myId: string; grouped?: boo
                   disabled={!text.trim() || act.isPending}
                   onClick={() => act.mutate({ path: "messages", body: { body: text } })}
                 >
-                  <Send /> Reply
+                  <Send /> {t("review.reply")}
                 </Button>
                 <Button
                   disabled={act.isPending}
                   onClick={() => act.mutate({ path: "resolve", body: text.trim() ? { note: text } : {} })}
                 >
-                  <CheckCheck /> Resolve
+                  <CheckCheck /> {t("review.resolve")}
                 </Button>
               </>
             )}
@@ -260,6 +257,7 @@ function DayLine({
   onReopen: () => void;
 }) {
   const loc = useLocale();
+  const t = useT();
   const worked = dayMin(d);
   const brk = Math.round(breakMin(d));
   const rostered = d.rostered.reduce((s, r) => s + r.endMin - r.startMin, 0);
@@ -274,37 +272,37 @@ function DayLine({
           <span className="font-mono">{hrs(worked)}</span>
           {delta != null && Math.abs(delta) >= 1 && (
             <span
-              className={`font-mono text-xs ${Math.abs(delta) >= 30 ? "text-amber-300" : "text-muted-foreground"}`}
-              title={`Usual day ${hrs(usual!)}`}
+              className={`font-mono text-xs ${Math.abs(delta) >= 30 ? STATUS_TEXT.warning : "text-muted-foreground"}`}
+              title={t("review.usualDay", { h: hrs(usual!) })}
             >
-              {signedHrs(delta)} vs usual
+              {t("review.vsUsual", { delta: signedHrs(delta) })}
             </span>
           )}
           {d.approved && (
-            <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Approved by {d.approved.by}</Badge>
+            <StatusBadge status="approved">{t("review.approvedBy", { name: d.approved.by })}</StatusBadge>
           )}
           {d.pendingMods > 0 && (
-            <Badge className="border-transparent bg-amber-500/15 text-amber-300">{d.pendingMods} to check</Badge>
+            <StatusBadge status="pending">{t("review.toCheck", { n: d.pendingMods })}</StatusBadge>
           )}
           {d.disputedMods > 0 && (
-            <Badge className="border-transparent bg-destructive/15 text-destructive">{d.disputedMods} disputed</Badge>
+            <StatusBadge status="disputed">{t("review.nDisputed", { n: d.disputedMods })}</StatusBadge>
           )}
-          {d.hasOpen && <Badge variant="secondary">Clocked in</Badge>}
+          {d.hasOpen && <StatusBadge status="open" />}
         </div>
         {d.entries.length > 0 && <HourDots day={d.day} entries={d.entries} compact />}
         <div className="font-mono text-xs text-muted-foreground">
-          {d.entries.map((e) => `${loc.time(e.clockIn)}–${e.clockOut ? loc.time(e.clockOut) : "open"}`).join("  ·  ") || "—"}
-          {brk > 0 && `  ·  ${brk}m break`}
+          {d.entries.map((e) => `${loc.time(e.clockIn)}–${e.clockOut ? loc.time(e.clockOut) : t("common.open")}`).join("  ·  ") || "—"}
+          {brk > 0 && `  ·  ${t("review.breakMin", { n: brk })}`}
           {d.rostered.length > 0 && (
-            <span title={`Rostered ${hrs(rostered)}`}>
-              {"  ·  rostered "}
-              {d.rostered.map((r) => `${hhmm(r.startMin)}–${hhmm(r.endMin)}`).join(", ")}
+            <span title={t("review.rosteredTotal", { h: hrs(rostered) })}>
+              {"  ·  "}
+              {t("review.rosteredList", { list: d.rostered.map((r) => `${hhmm(r.startMin)}–${hhmm(r.endMin)}`).join(", ") })}
             </span>
           )}
         </div>
       </div>
       <div className="flex gap-2">
-        <Button asChild variant="ghost" size="sm" aria-label="Edit this day">
+        <Button asChild variant="ghost" size="sm" aria-label={t("review.editDay")}>
           <Link href={entriesHref(employeeId, d.day, true)}>
             <Pencil />
           </Link>
@@ -312,21 +310,21 @@ function DayLine({
         {d.approved ? (
           isManager && (
             <Button variant="secondary" size="sm" disabled={busy} onClick={onReopen}>
-              <Undo2 /> Reopen
+              <Undo2 /> {t("review.reopen")}
             </Button>
           )
         ) : d.hasOpen ? (
           // Say why it can't be approved, and where to fix it.
           <Button asChild variant="outline" size="sm">
-            <Link href={entriesHref(employeeId, d.day, true)}>Still clocked in — close shift</Link>
+            <Link href={entriesHref(employeeId, d.day, true)}>{t("review.stillIn")}</Link>
           </Button>
         ) : d.disputedMods > 0 ? (
-          <span className="self-center text-xs text-destructive">Dispute open — resolve above</span>
+          <span className="self-center text-xs text-destructive">{t("review.disputeOpen")}</span>
         ) : d.entries.length === 0 ? (
-          <span className="self-center text-xs text-muted-foreground">No time</span>
+          <span className="self-center text-xs text-muted-foreground">{t("review.noTime")}</span>
         ) : (
           <Button size="sm" disabled={busy} onClick={onApprove}>
-            <CircleCheck /> Approve
+            <CircleCheck /> {t("review.approve")}
           </Button>
         )}
       </div>
@@ -347,6 +345,7 @@ function ReopenDialog({
   onConfirm: (reason: string) => void;
 }) {
   const loc = useLocale();
+  const t = useT();
   const [reason, setReason] = useState("");
   const ok = reason.trim().length >= 3;
   return (
@@ -361,14 +360,14 @@ function ReopenDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reopen this day?</DialogTitle>
+          <DialogTitle>{t("review.reopenTitle")}</DialogTitle>
           <DialogDescription>
             {target && `${target.name} · ${loc.date(`${target.day}T12:00:00`)}. `}
-            They can edit it again until it is re-approved.
+            {t("review.reopenBody")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-2">
-          {REOPEN_CHIPS.map((c) => (
+          {REOPEN_CHIPS.map((k) => t(k)).map((c) => (
             <Button key={c} type="button" variant={reason === c ? "default" : "outline"} size="sm" onClick={() => setReason(c)}>
               {c}
             </Button>
@@ -378,8 +377,8 @@ function ReopenDialog({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           className="min-h-16"
-          placeholder="Why reopen it? (at least 3 characters)"
-          aria-label="Reason"
+          placeholder={t("review.reopenPlaceholder")}
+          aria-label={t("review.reasonAria")}
         />
         <DialogFooter>
           <Button
@@ -389,7 +388,7 @@ function ReopenDialog({
               onClose();
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             disabled={!ok || busy}
@@ -398,7 +397,7 @@ function ReopenDialog({
               setReason("");
             }}
           >
-            <Undo2 /> Reopen
+            <Undo2 /> {t("review.reopen")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -463,8 +462,9 @@ export default function ReviewPage() {
       return out;
     },
     onSuccess: (r) => {
-      if (r.approved) toast.success(`Approved ${r.approved} day(s).`);
-      for (const s of r.skipped) toast.warning(`${s.name ? `${s.name}, ` : ""}${s.day}: ${SKIP[s.reason] ?? s.reason}`);
+      if (r.approved) toast.success(t(r.approved === 1 ? "review.approvedDays.one" : "review.approvedDays.other", { n: r.approved }));
+      for (const s of r.skipped)
+        toast.warning(`${s.name ? `${s.name}, ` : ""}${s.day}: ${SKIP[s.reason] ? t(SKIP[s.reason]) : s.reason}`);
       refreshDays();
     },
     onError: (e) => {
@@ -476,7 +476,7 @@ export default function ReviewPage() {
     mutationFn: ({ employeeId: emp, day, reason }: { employeeId: string; day: string; reason: string }) =>
       apiPost("/review/days/unapprove", { employeeId: emp, day, reason }),
     onSuccess: () => {
-      toast.success("Approval removed — staff can edit that day again.");
+      toast.success(t("review.unapproved"));
       setReopen(null);
       refreshDays();
     },
@@ -494,8 +494,13 @@ export default function ReviewPage() {
       return { ...r, approved: a?.approved.length ?? 0, skipped: a?.skipped ?? [] };
     },
     onSuccess: (r) => {
-      toast.success(`Acknowledged ${r.acknowledged} change(s)${r.approved ? " and approved the day" : ""}.`);
-      for (const s of r.skipped) toast.warning(`${s.day}: ${SKIP[s.reason] ?? s.reason}`);
+      const one = r.acknowledged === 1;
+      toast.success(
+        r.approved
+          ? t(one ? "review.ackedApproved.one" : "review.ackedApproved.other", { n: r.acknowledged })
+          : t(one ? "review.acked.one" : "review.acked.other", { n: r.acknowledged }),
+      );
+      for (const s of r.skipped) toast.warning(`${s.day}: ${SKIP[s.reason] ? t(SKIP[s.reason]) : s.reason}`);
       refreshMods();
       qc.invalidateQueries({ queryKey: ["manager-entries"] });
     },
@@ -516,8 +521,8 @@ export default function ReviewPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-destructive">Access denied</CardTitle>
-            <CardDescription>Lead role or above required.</CardDescription>
+            <CardTitle className="text-destructive">{t("mgr.accessDenied")}</CardTitle>
+            <CardDescription>{t("mgr.leadRequired")}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -555,16 +560,13 @@ export default function ReviewPage() {
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
       <Card>
         <CardHeader>
-          <CardTitle>Staff changes to check</CardTitle>
-          <CardDescription>
-            Acknowledge = you have read it (no approval needed). Dispute = you don&apos;t agree; it starts a conversation with the
-            employee.
-          </CardDescription>
+          <CardTitle>{t("mgr.staffChangesTitle")}</CardTitle>
+          <CardDescription>{t("review.staffChangesHint")}</CardDescription>
           <CardAction>
             <Tabs value={filter} onValueChange={(v) => setFilter(v as "open" | "all")}>
               <TabsList>
-                <TabsTrigger value="open">To check</TabsTrigger>
-                <TabsTrigger value="all">History</TabsTrigger>
+                <TabsTrigger value="open">{t("review.tabToCheck")}</TabsTrigger>
+                <TabsTrigger value="all">{t("review.tabHistory")}</TabsTrigger>
               </TabsList>
             </Tabs>
           </CardAction>
@@ -572,7 +574,7 @@ export default function ReviewPage() {
         <CardContent className="flex flex-col gap-4">
           {mods.isLoading && <Skeleton className="h-24 w-full" />}
           {!mods.isLoading && list.length === 0 && (
-            <p className="text-sm text-muted-foreground">{filter === "open" ? "Nothing to check." : "No changes yet."}</p>
+            <p className="text-sm text-muted-foreground">{filter === "open" ? t("mgr.nothingToCheck") : t("review.noChanges")}</p>
           )}
           {pendingIds.length > 1 && modPeople.length > 1 && (
             <Button
@@ -581,7 +583,7 @@ export default function ReviewPage() {
               disabled={ackAll.isPending}
               onClick={() => ackAll.mutate({ ids: pendingIds })}
             >
-              <CheckCheck /> Acknowledge all {pendingIds.length}
+              <CheckCheck /> {t("review.ackAll", { n: pendingIds.length })}
             </Button>
           )}
           {modPeople.map((g) => {
@@ -600,7 +602,7 @@ export default function ReviewPage() {
                       disabled={ackAll.isPending}
                       onClick={() => ackAll.mutate({ ids: personPending })}
                     >
-                      <CheckCheck /> Acknowledge all for {g.name} ({personPending.length})
+                      <CheckCheck /> {t("review.ackAllFor", { name: g.name, n: personPending.length })}
                     </Button>
                   )}
                 </div>
@@ -622,7 +624,7 @@ export default function ReviewPage() {
                           </Link>
                           {d && <span className="font-mono">{hrs(dayMin(d))}</span>}
                           {d?.approved && (
-                            <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Approved</Badge>
+                            <StatusBadge status="approved" />
                           )}
                           {canAckApprove && (
                             <Button
@@ -631,7 +633,7 @@ export default function ReviewPage() {
                               disabled={ackAll.isPending}
                               onClick={() => ackAll.mutate({ ids: dayPending, approveDay: { employeeId: g.employeeId, day } })}
                             >
-                              <CircleCheck /> Acknowledge + approve day
+                              <CircleCheck /> {t("review.ackApproveDay")}
                             </Button>
                           )}
                         </div>
@@ -650,16 +652,17 @@ export default function ReviewPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Approve days</CardTitle>
+          <CardTitle>{t("review.approveDaysTitle")}</CardTitle>
           <CardDescription>
-            An approved day is locked: the employee can no longer change it. You still can.
-            {days.data && ` Showing ${loc.date(`${days.data.from}T12:00:00`)} – ${loc.date(`${days.data.to}T12:00:00`)}.`}
+            {t("review.approveDaysHint")}
+            {days.data &&
+              ` ${t("review.showing", { from: loc.date(`${days.data.from}T12:00:00`), to: loc.date(`${days.data.to}T12:00:00`) })}`}
           </CardDescription>
           <CardAction>
             <Tabs value={dayView} onValueChange={(v) => setDayView(v as "todo" | "all")}>
               <TabsList>
-                <TabsTrigger value="todo">To approve</TabsTrigger>
-                <TabsTrigger value="all">All days</TabsTrigger>
+                <TabsTrigger value="todo">{t("review.tabToApprove")}</TabsTrigger>
+                <TabsTrigger value="all">{t("review.tabAllDays")}</TabsTrigger>
               </TabsList>
             </Tabs>
           </CardAction>
@@ -667,11 +670,11 @@ export default function ReviewPage() {
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <Select value={employeeId} onValueChange={setEmployeeId}>
-              <SelectTrigger aria-label="Filter by employee" className="min-w-48">
+              <SelectTrigger aria-label={t("review.filterEmployee")} className="min-w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Everyone</SelectItem>
+                <SelectItem value="all">{t("review.everyone")}</SelectItem>
                 {(days.data?.people ?? []).map((p) => (
                   <SelectItem key={p.employeeId} value={p.employeeId}>
                     {p.employeeName}
@@ -681,14 +684,16 @@ export default function ReviewPage() {
             </Select>
             {allReadyCount > 1 && (
               <Button className="ml-auto" disabled={approve.isPending} onClick={() => approve.mutate(allReady)}>
-                <CircleCheck /> Approve all {allReadyCount} ready
+                <CircleCheck /> {t("review.approveAllReady", { n: allReadyCount })}
               </Button>
             )}
           </div>
 
           {days.isLoading && <Skeleton className="h-24 w-full" />}
           {!days.isLoading && people.length === 0 && (
-            <p className="text-sm text-muted-foreground">{dayView === "todo" ? "Nothing waiting to approve." : "No time in this window."}</p>
+            <p className="text-sm text-muted-foreground">
+              {dayView === "todo" ? t("review.nothingToApprove") : t("review.noTimeWindow")}
+            </p>
           )}
           {people.map((p) => (
             <section key={p.employeeId} className="flex flex-col gap-3">
@@ -698,7 +703,7 @@ export default function ReviewPage() {
                 </Link>
                 {p.hasWork && (
                   <span className="text-xs text-muted-foreground">
-                    usually {p.typical.start}–{p.typical.end}
+                    {t("review.usually", { start: p.typical.start, end: p.typical.end })}
                     {p.usual != null && ` · ${hrs(p.usual)}`}
                   </span>
                 )}
@@ -710,14 +715,14 @@ export default function ReviewPage() {
                     disabled={approve.isPending}
                     onClick={() => approve.mutate([{ employeeId: p.employeeId, days: p.ready.map((d) => d.day) }])}
                   >
-                    <CircleCheck /> Approve {p.ready.length} ready
+                    <CircleCheck /> {t("review.approveReady", { n: p.ready.length })}
                   </Button>
                 )}
               </div>
               {[...p.weeks.entries()].map(([wk, ds]) => (
                 <div key={wk} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Week of {loc.date(`${wk}T12:00:00`)}</span>
+                    <span>{t("myHours.weekOf", { date: loc.date(`${wk}T12:00:00`) })}</span>
                     <span className="ml-auto font-mono">{hrs(ds.reduce((s, d) => s + dayMin(d), 0))}</span>
                   </div>
                   {ds.map((d) => (

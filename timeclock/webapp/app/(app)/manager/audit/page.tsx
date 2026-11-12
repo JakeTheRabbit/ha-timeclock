@@ -12,7 +12,9 @@ import { entriesHref } from "@/lib/links";
 import { tzOffset } from "@/lib/tz";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -47,6 +49,22 @@ const ENTITY_TYPES = [
   "settings",
   "job",
 ];
+const ENTITY_KEYS: Record<string, MessageKey> = {
+  time_entry: "audit.entity.time_entry",
+  break: "audit.entity.break",
+  modification: "audit.entity.modification",
+  day: "audit.entity.day",
+  correction: "audit.entity.correction",
+  employee: "audit.entity.employee",
+  leave_request: "audit.entity.leave_request",
+  leave_ledger: "audit.entity.leave_ledger",
+  roster: "audit.entity.roster",
+  pay_period: "audit.entity.pay_period",
+  bonus: "audit.entity.bonus",
+  device: "audit.entity.device",
+  settings: "audit.entity.settings",
+  job: "audit.entity.job",
+};
 const PAGE = 50;
 
 interface AuditRow {
@@ -78,6 +96,8 @@ const addDay = (day: string) => {
 export default function AuditPage() {
   const { session, isLoading } = useSession();
   const loc = useLocale();
+  const t = useT();
+  const entity = (x: string) => (ENTITY_KEYS[x] ? t(ENTITY_KEYS[x]) : entityLabel(x));
   const [entityType, setEntityType] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [from, setFrom] = useState("");
@@ -132,8 +152,8 @@ export default function AuditPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-destructive">Access denied</CardTitle>
-            <CardDescription>Lead role or above required.</CardDescription>
+            <CardTitle className="text-destructive">{t("mgr.accessDenied")}</CardTitle>
+            <CardDescription>{t("mgr.leadRequired")}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -149,18 +169,15 @@ export default function AuditPage() {
       {/* Chain verification status */}
       {verify.data &&
         (verify.data.ok ? (
-          <Badge
-            variant="outline"
-            className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-sm text-emerald-300 [&>svg]:size-4"
-          >
-            <ShieldCheck /> Hash chain intact
-          </Badge>
+          <StatusBadge status="approved" className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4">
+            <ShieldCheck /> {t("audit.chainOk")}
+          </StatusBadge>
         ) : (
           <Badge
             variant="destructive"
             className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4"
           >
-            <ShieldAlert /> CHAIN BROKEN at #{verify.data.broken_at}
+            <ShieldAlert /> {t("audit.chainBroken", { n: String(verify.data.broken_at) })}
           </Badge>
         ))}
 
@@ -171,14 +188,14 @@ export default function AuditPage() {
             value={entityType || "all"}
             onValueChange={(v) => setEntityType(v === "all" ? "" : v)}
           >
-            <SelectTrigger className="w-full" aria-label="Filter by type">
-              <SelectValue placeholder="Everything" />
+            <SelectTrigger className="w-full" aria-label={t("audit.filterType")}>
+              <SelectValue placeholder={t("audit.everything")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Everything</SelectItem>
-              {ENTITY_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {entityLabel(t)}
+              <SelectItem value="all">{t("audit.everything")}</SelectItem>
+              {ENTITY_TYPES.map((x) => (
+                <SelectItem key={x} value={x}>
+                  {entity(x)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -187,15 +204,15 @@ export default function AuditPage() {
             value={employeeId || "all"}
             onValueChange={(v) => setEmployeeId(v === "all" ? "" : v)}
           >
-            <SelectTrigger className="w-full" aria-label="Filter by person">
-              <SelectValue placeholder="Everyone" />
+            <SelectTrigger className="w-full" aria-label={t("audit.filterPerson")}>
+              <SelectValue placeholder={t("review.everyone")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Everyone</SelectItem>
+              <SelectItem value="all">{t("review.everyone")}</SelectItem>
               {(people.data?.employees ?? []).map((e) => (
                 <SelectItem key={e.id} value={e.id}>
                   {e.displayName}
-                  {!e.active && " (inactive)"}
+                  {!e.active && ` (${t("audit.inactive")})`}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -208,16 +225,16 @@ export default function AuditPage() {
               value={from}
               max={to || undefined}
               onChange={(e) => setFrom(e.target.value)}
-              aria-label="From day"
+              aria-label={t("audit.fromDay")}
               className="w-full sm:w-40"
             />
-            <span className="text-sm text-muted-foreground">to</span>
+            <span className="text-sm text-muted-foreground">{t("audit.to")}</span>
             <Input
               type="date"
               value={to}
               min={from || undefined}
               onChange={(e) => setTo(e.target.value)}
-              aria-label="To day"
+              aria-label={t("audit.toDay")}
               className="w-full sm:w-40"
             />
           </div>
@@ -226,9 +243,9 @@ export default function AuditPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search action, reason, name…"
+              placeholder={t("audit.searchPlaceholder")}
               className="pl-9"
-              aria-label="Search audit log"
+              aria-label={t("audit.searchAria")}
             />
           </div>
           {filtered && (
@@ -243,7 +260,7 @@ export default function AuditPage() {
                 setSearch("");
               }}
             >
-              <X /> Clear
+              <X /> {t("audit.clear")}
             </Button>
           )}
         </div>
@@ -263,7 +280,7 @@ export default function AuditPage() {
         )}
         {!rows.isLoading && !rows.isError && visible.length === 0 && (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No matching audit entries.
+            {t("audit.empty")}
           </p>
         )}
         {visible.map((r) => {
@@ -277,12 +294,12 @@ export default function AuditPage() {
                 <span className="text-xs text-muted-foreground">
                   {loc.dateTime(r.createdAt, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                 </span>
-                <span className="font-medium">{r.actorName ?? (r.actorId ? "Unknown" : "System")}</span>
+                <span className="font-medium">{r.actorName ?? (r.actorId ? t("audit.unknown") : t("audit.system"))}</span>
                 <span className="text-primary">{actionLabel(r.action)}</span>
                 <span className="text-muted-foreground">·</span>
-                <span>{entityLabel(r.entityType)}</span>
+                <span>{entity(r.entityType)}</span>
                 {r.subjectName && r.subjectId !== r.actorId && (
-                  <span className="text-muted-foreground">for {r.subjectName}</span>
+                  <span className="text-muted-foreground">{t("audit.forName", { name: r.subjectName })}</span>
                 )}
                 {r.subjectId && r.day && (
                   <Link
@@ -313,14 +330,14 @@ export default function AuditPage() {
                             <span className="text-muted-foreground"> ⇒ </span>
                           )}
                           {r.newValue != null && (
-                            <span className="text-emerald-300/90">{formatValue(c.after, c.field, fmt)}</span>
+                            <span className="text-emerald-700 dark:text-emerald-300/90">{formatValue(c.after, c.field, fmt)}</span>
                           )}
                         </dd>
                       </div>
                     ))}
                   </dl>
                 ) : (
-                  <p className="text-xs text-muted-foreground">No field changes recorded.</p>
+                  <p className="text-xs text-muted-foreground">{t("audit.noFieldChanges")}</p>
                 )}
                 <div className="break-all font-mono text-[11px] text-muted-foreground">
                   #{r.id} · {r.entityType} {r.entityId} · hash {r.hash.slice(0, 16)}…
@@ -336,7 +353,7 @@ export default function AuditPage() {
             disabled={rows.isFetchingNextPage}
             onClick={() => rows.fetchNextPage()}
           >
-            {rows.isFetchingNextPage ? "Loading…" : "Load older"}
+            {rows.isFetchingNextPage ? t("audit.loading") : t("audit.loadOlder")}
           </Button>
         )}
       </div>

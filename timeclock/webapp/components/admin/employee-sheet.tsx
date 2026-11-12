@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { CalendarDays, KeyRound, Wallet } from "lucide-react";
 import { entriesHref } from "@/lib/links";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,7 @@ export function EmployeeSheet({
   onPin: (pin: string, done: () => void) => void;
   pinPending: boolean;
 }) {
+  const t = useT();
   const [pin, setPin] = useState("");
   useEffect(() => setPin(""), [e?.id]);
   const manual = haEntities && !haEntities.available;
@@ -70,7 +72,7 @@ export function EmployeeSheet({
 
   const savePin = () => {
     if (!/^\d{4,12}$/.test(pin)) {
-      toast.error("PIN must be 4–12 digits.");
+      toast.error(t("employees.pinFormat"));
       return;
     }
     onPin(pin, () => setPin(""));
@@ -86,11 +88,11 @@ export function EmployeeSheet({
                 <Avatar employeeId={e.id} name={e.displayName} size="md" />
                 <div className="min-w-0 flex-1 text-left">
                   <DialogTitle className="truncate">{e.displayName}</DialogTitle>
-                  <DialogDescription className="capitalize">{e.role}</DialogDescription>
+                  <DialogDescription>{t(`role.${e.role}` as MessageKey)}</DialogDescription>
                 </div>
                 <div className="flex items-center gap-2 pr-6">
                   <Label htmlFor="sheet-active" className="text-xs text-muted-foreground">
-                    {e.active ? "Active" : "Inactive"}
+                    {e.active ? t("jobs.active") : t("jobs.inactive")}
                   </Label>
                   <Switch id="sheet-active" checked={e.active} onCheckedChange={onActive} />
                 </div>
@@ -100,59 +102,59 @@ export function EmployeeSheet({
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="secondary" size="sm">
                 <Link href={entriesHref(e.id, today)}>
-                  <CalendarDays /> This week
+                  <CalendarDays /> {t("roster.thisWeek")}
                 </Link>
               </Button>
               {e.payTracking && (
                 <Button asChild variant="secondary" size="sm">
                   <Link href={`/manager/pay?employeeId=${e.id}`}>
-                    <Wallet /> Owed
+                    <Wallet /> {t("employees.owed")}
                   </Link>
                 </Button>
               )}
             </div>
 
-            <Section title="Access">
-              <Field id="sheet-name" label="Name">
+            <Section title={t("employees.sectionAccess")}>
+              <Field id="sheet-name" label={t("jobs.nameField")}>
                 <TextField
                   id="sheet-name"
                   value={e.displayName}
-                  placeholder="Name"
+                  placeholder={t("jobs.nameField")}
                   mono={false}
-                  onSave={(v) => (v ? onPatch({ displayName: v }) : toast.error("Name can't be empty."))}
+                  onSave={(v) => (v ? onPatch({ displayName: v }) : toast.error(t("employees.nameEmpty")))}
                 />
               </Field>
-              <Field id="sheet-role" label="Role">
+              <Field id="sheet-role" label={t("employees.role")}>
                 <Select value={e.role} onValueChange={(v) => onPatch({ role: v })}>
-                  <SelectTrigger id="sheet-role" className="capitalize">
+                  <SelectTrigger id="sheet-role">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {ROLES.map((r) => (
-                      <SelectItem key={r} value={r} className="capitalize">
-                        {r}
+                      <SelectItem key={r} value={r}>
+                        {t(`role.${r}` as MessageKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </Field>
-              <Field id="sheet-ha" label="Home Assistant username" hint="Signs them in automatically when they open the panel in HA.">
+              <Field id="sheet-ha" label={t("employees.haUser")} hint={t("employees.haUserHint")}>
                 <TextField
                   id="sheet-ha"
                   value={e.haUsername}
-                  placeholder="HA username"
+                  placeholder={t("employees.haUserPlaceholder")}
                   onSave={(v) => onPatch({ haUsername: v || null })}
                 />
               </Field>
               <Field
                 id="sheet-pin"
-                label={e.hasPin ? "Reset PIN" : "Set PIN"}
+                label={e.hasPin ? t("employees.resetPin") : t("me.pin.set")}
                 hint={
                   !e.hasPin
-                    ? "No PIN yet — they can't sign in on a kiosk until one is set."
+                    ? t("employees.pinNone")
                     : e.active
-                      ? "PIN set — they can sign in on a kiosk."
-                      : "PIN set, but inactive people don't appear on the kiosk."
+                      ? t("employees.pinSet")
+                      : t("employees.pinSetInactive")
                 }
               >
                 <div className="flex gap-2">
@@ -163,25 +165,25 @@ export function EmployeeSheet({
                     onKeyDown={(ev) => ev.key === "Enter" && !pinPending && pin && savePin()}
                     inputMode="numeric"
                     autoComplete="off"
-                    placeholder="4–12 digits"
+                    placeholder={t("employees.pinPlaceholder")}
                   />
                   <Button variant="outline" onClick={savePin} disabled={!pin || pinPending}>
-                    <KeyRound /> Save PIN
+                    <KeyRound /> {t("employees.savePin")}
                   </Button>
                 </div>
               </Field>
             </Section>
 
-            <Section title="Pay">
-              <Field id="sheet-rate" label="Hourly rate">
+            <Section title={t("employees.sectionPay")}>
+              <Field id="sheet-rate" label={t("employees.hourlyRate")}>
                 <TextField
                   id="sheet-rate"
                   value={e.hourlyRateCents == null ? null : (e.hourlyRateCents / 100).toFixed(2)}
-                  placeholder="e.g. 25.50"
+                  placeholder={t("employees.ratePlaceholder")}
                   onSave={(v) => {
                     const n = Number(v.replace(/[$,\s]/g, ""));
                     if (v !== "" && (!Number.isFinite(n) || n < 0)) {
-                      toast.error("Rate must be a number, e.g. 25.50");
+                      toast.error(t("employees.rateInvalid"));
                       return;
                     }
                     onPatch({ hourlyRateCents: v === "" ? null : Math.round(n * 100) });
@@ -190,9 +192,9 @@ export function EmployeeSheet({
               </Field>
               <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
                 <Label htmlFor="sheet-paytrack" className="flex flex-col items-start gap-1">
-                  Track pay
+                  {t("employees.trackPay")}
                   <span className="text-xs font-normal text-muted-foreground">
-                    Off = no rate, amounts or bonuses for this person
+                    {t("employees.trackPayHint")}
                   </span>
                 </Label>
                 <Switch
@@ -203,8 +205,8 @@ export function EmployeeSheet({
               </div>
             </Section>
 
-            <Section title="Presence">
-              <Field id="sheet-notify" label="Notify service">
+            <Section title={t("employees.sectionPresence")}>
+              <Field id="sheet-notify" label={t("employees.notifyService")}>
                 {manual ? (
                   <TextField
                     id="sheet-notify"
@@ -218,11 +220,11 @@ export function EmployeeSheet({
                     onValueChange={(v) => onPatch({ notifyService: v === NONE ? "" : v })}
                   >
                     <SelectTrigger id="sheet-notify" className="font-mono">
-                      <SelectValue placeholder="— none —" />
+                      <SelectValue placeholder={t("employees.none")} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE} className="text-muted-foreground">
-                        — none —
+                        {t("employees.none")}
                       </SelectItem>
                       {haEntities?.notify.map((n) => (
                         <SelectItem key={n} value={n} className="font-mono">
@@ -240,7 +242,7 @@ export function EmployeeSheet({
                 )}
               </Field>
 
-              <Field id="sheet-presence" label="Presence entity">
+              <Field id="sheet-presence" label={t("employees.presenceEntity")}>
                 {manual ? (
                   <TextField
                     id="sheet-presence"
@@ -254,11 +256,11 @@ export function EmployeeSheet({
                     onValueChange={(v) => onPatch({ presenceEntity: v === NONE ? "" : v })}
                   >
                     <SelectTrigger id="sheet-presence">
-                      <SelectValue placeholder="— none —" />
+                      <SelectValue placeholder={t("employees.none")} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE} className="text-muted-foreground">
-                        — none —
+                        {t("employees.none")}
                       </SelectItem>
                       {haEntities?.presence.map((p) => (
                         <SelectItem key={p.entity_id} value={p.entity_id}>
@@ -280,7 +282,7 @@ export function EmployeeSheet({
               </Field>
 
               <div className="sm:col-span-2">
-                <Field id="sheet-access" label="Door card readers" hint="Clock-ins with no swipe on these get flagged. Comma-separated entity IDs.">
+                <Field id="sheet-access" label={t("employees.doorReaders")} hint={t("employees.doorReadersHint")}>
                   <TextField
                     id="sheet-access"
                     value={e.accessEntities.join(", ")}
@@ -293,8 +295,7 @@ export function EmployeeSheet({
               </div>
               {manual && (
                 <p className="text-xs text-muted-foreground sm:col-span-2">
-                  HA discovery is unavailable — enter the notify service and presence entity IDs
-                  manually.
+                  {t("employees.manualHint")}
                 </p>
               )}
             </Section>

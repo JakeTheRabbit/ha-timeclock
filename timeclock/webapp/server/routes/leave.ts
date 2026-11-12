@@ -8,6 +8,16 @@ import { requireRole } from "@/server/auth/rbac";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { runAccrual, leaveBalances, ANNUAL_ACCRUAL_RATE } from "@/server/domain/leave/accrual";
 import { notifyEmployee } from "@/server/integrations/notify/personal";
+import { serverT } from "@/server/i18n";
+import type { MessageKey } from "@/lib/i18n/translate";
+
+const LEAVE_TYPE_KEY: Record<string, MessageKey> = {
+  annual: "leave.typeAnnual",
+  sick: "leave.typeSick",
+  bereavement: "leave.typeBereavement",
+  alt_holiday: "leave.typeAltHoliday",
+  unpaid: "leave.typeUnpaid",
+};
 
 const dateISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const LEDGER_TYPES = ["annual", "sick", "bereavement", "alt_holiday"] as const;
@@ -31,11 +41,14 @@ async function notifyLeaveDecision(
 ) {
   const emp = await getDb().query.employees.findFirst({ where: (e, { eq: eq_ }) => eq_(e.id, row.employeeId) });
   if (!emp) return;
-  const range = row.startDate === row.endDate ? row.startDate : `${row.startDate} to ${row.endDate}`;
+  const { t } = await serverT();
+  const range = row.startDate === row.endDate ? row.startDate : t("push.range", { start: row.startDate, end: row.endDate });
+  const typeKey = LEAVE_TYPE_KEY[row.type];
+  const vars = { name: reviewerName, type: typeKey ? t(typeKey) : row.type, range, hours: Number(row.hours) };
   await notifyEmployee(emp, {
-    title: `Time Clock: leave ${decision}`,
+    title: t(decision === "approved" ? "push.leaveApprovedTitle" : "push.leaveDeclinedTitle"),
     message:
-      `${reviewerName} ${decision} your ${row.type.replace("_", " ")} leave ${range} (${Number(row.hours)}h)` +
+      t(decision === "approved" ? "push.leaveApprovedBody" : "push.leaveDeclinedBody", vars) +
       (note ? `: ${note}` : "."),
   });
 }

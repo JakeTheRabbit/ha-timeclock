@@ -9,6 +9,7 @@ import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
 import { filterEmployees } from "@/lib/employee-list";
 import { useSession } from "@/hooks/use-session";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { EmployeeSheet, ROLES, type Emp, type HaEntities } from "@/components/admin/employee-sheet";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,7 @@ const errMsg = (e: unknown) => {
 
 export default function EmployeesAdminPage() {
   const qc = useQueryClient();
+  const t = useT();
   const { session, isLoading: sessionLoading } = useSession();
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("employee");
@@ -76,7 +78,7 @@ export default function EmployeesAdminPage() {
     onSuccess: (res) => {
       setName("");
       setPin("");
-      toast.success("Employee created.");
+      toast.success(t("employees.created"));
       refresh();
       setOpenId(res.employee.id);
     },
@@ -87,7 +89,7 @@ export default function EmployeesAdminPage() {
     mutationFn: (vars: { id: string; pin: string; done: () => void }) =>
       apiPost(`/admin/employees/${vars.id}/pin`, { pin: vars.pin }),
     onSuccess: (_res, vars) => {
-      toast.success("PIN updated.");
+      toast.success(t("employees.pinUpdated"));
       vars.done();
       refresh();
     },
@@ -98,7 +100,7 @@ export default function EmployeesAdminPage() {
     mutationFn: (vars: { id: string; data: Partial<Emp> }) =>
       apiPatch(`/admin/employees/${vars.id}`, vars.data),
     onSuccess: () => {
-      toast.success("Saved.");
+      toast.success(t("employees.saved"));
       refresh();
     },
     onError: (e) => toast.error(errMsg(e)),
@@ -123,7 +125,7 @@ export default function EmployeesAdminPage() {
       return { previous };
     },
     onSuccess: (_data, vars) => {
-      toast.success(vars.active ? "Employee activated." : "Employee deactivated.");
+      toast.success(vars.active ? t("employees.activated") : t("employees.deactivated"));
     },
     onError: (e, _vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(["admin-employees"], ctx.previous);
@@ -137,7 +139,7 @@ export default function EmployeesAdminPage() {
       apiPost("/admin/devices/bind", {
         name: `Kiosk ${new Date().toISOString().slice(0, 10)}`,
       }),
-    onSuccess: () => toast.success("This device is now a bound kiosk."),
+    onSuccess: () => toast.success(t("devices.bound")),
     onError: (e) => toast.error(errMsg(e)),
   });
 
@@ -155,11 +157,9 @@ export default function EmployeesAdminPage() {
       <Container>
         <Card>
           <CardContent className="flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground">
-              Not signed in. Sign in as an admin from the PIN screen.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("employees.notSignedIn")}</p>
             <Button asChild variant="secondary">
-              <Link href="/pin">Go to PIN screen</Link>
+              <Link href="/pin">{t("employees.goToPin")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -172,7 +172,7 @@ export default function EmployeesAdminPage() {
         <Card>
           <CardContent>
             <p className="text-sm text-destructive">
-              Forbidden — admin role required (you are {session.employee.role}).
+              {t("employees.forbidden", { role: t(`role.${session.employee.role}` as MessageKey) })}
             </p>
           </CardContent>
         </Card>
@@ -188,12 +188,12 @@ export default function EmployeesAdminPage() {
     <Container>
       <Card>
         <CardHeader>
-          <CardTitle>Add employee</CardTitle>
+          <CardTitle>{t("employees.add")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-[1fr_11rem_8rem]">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-emp-name">Name</Label>
+              <Label htmlFor="new-emp-name">{t("jobs.nameField")}</Label>
               <Input
                 id="new-emp-name"
                 value={name}
@@ -202,22 +202,22 @@ export default function EmployeesAdminPage() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-emp-role">Role</Label>
+              <Label htmlFor="new-emp-role">{t("employees.role")}</Label>
               <Select value={role} onValueChange={setRole}>
-                <SelectTrigger id="new-emp-role" className="capitalize">
+                <SelectTrigger id="new-emp-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {ROLES.map((r) => (
-                    <SelectItem key={r} value={r} className="capitalize">
-                      {r}
+                    <SelectItem key={r} value={r}>
+                      {t(`role.${r}` as MessageKey)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-emp-pin">PIN (optional)</Label>
+              <Label htmlFor="new-emp-pin">{t("employees.pinOptional")}</Label>
               <Input
                 id="new-emp-pin"
                 value={pin}
@@ -229,7 +229,7 @@ export default function EmployeesAdminPage() {
           </div>
           <div>
             <Button onClick={() => create.mutate()} disabled={!name.trim() || create.isPending}>
-              <UserPlus /> Add employee
+              <UserPlus /> {t("employees.add")}
             </Button>
           </div>
         </CardContent>
@@ -240,8 +240,8 @@ export default function EmployeesAdminPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Tabs value={tab} onValueChange={(v) => setTab(v as "active" | "inactive")}>
               <TabsList>
-                <TabsTrigger value="active">Active ({activeCount})</TabsTrigger>
-                <TabsTrigger value="inactive">Inactive ({all.length - activeCount})</TabsTrigger>
+                <TabsTrigger value="active">{t("employees.tabActive", { n: activeCount })}</TabsTrigger>
+                <TabsTrigger value="inactive">{t("employees.tabInactive", { n: all.length - activeCount })}</TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="relative sm:ml-auto sm:w-64">
@@ -249,8 +249,8 @@ export default function EmployeesAdminPage() {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, role, HA user"
-                aria-label="Search employees"
+                placeholder={t("employees.searchPlaceholder")}
+                aria-label={t("employees.searchAria")}
                 className="pl-9"
                 autoComplete="off"
               />
@@ -267,12 +267,12 @@ export default function EmployeesAdminPage() {
           {list.data && shown.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">
               {all.length === 0
-                ? "No employees yet."
+                ? t("employees.empty")
                 : query
-                  ? "Nobody matches that search."
+                  ? t("employees.noMatch")
                   : tab === "active"
-                    ? "Nobody is active."
-                    : "Nobody is inactive."}
+                    ? t("employees.noneActive")
+                    : t("employees.noneInactive")}
             </p>
           )}
 
@@ -296,10 +296,10 @@ export default function EmployeesAdminPage() {
                       </span>
                     )}
                   </span>
-                  <Badge variant="outline" className="capitalize">
-                    {e.role}
+                  <Badge variant="outline">
+                    {t(`role.${e.role}` as MessageKey)}
                   </Badge>
-                  {!e.hasPin && <Badge variant="outline">No PIN</Badge>}
+                  {!e.hasPin && <Badge variant="outline">{t("employees.noPin")}</Badge>}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </button>
               </li>
@@ -310,7 +310,7 @@ export default function EmployeesAdminPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border p-3">
         <p className="text-xs text-muted-foreground">
-          Registers this browser or tablet as a kiosk device.
+          {t("employees.bindHint")}
         </p>
         <Button
           variant="ghost"
@@ -318,7 +318,7 @@ export default function EmployeesAdminPage() {
           onClick={() => bindDevice.mutate()}
           disabled={bindDevice.isPending}
         >
-          <TabletSmartphone /> Bind this device as kiosk
+          <TabletSmartphone /> {t("employees.bindKiosk")}
         </Button>
       </div>
 

@@ -4,6 +4,8 @@ import { timeEntries, breaks, employees } from "@/db/schema";
 import { getSettings } from "@/server/domain/settings";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { notify } from "@/server/integrations/notify";
+import { asLang, translate } from "@/lib/i18n/translate";
+import { APP_TZ } from "@/lib/tz";
 
 /**
  * Safety net: force-close entries left open past maxShiftHours. The closed
@@ -47,9 +49,14 @@ export async function runAutoClockout(now = new Date()): Promise<number> {
       newValue: { clockOut: now.toISOString() },
     });
 
+    const lang = asLang(settings.locale.language);
     await notify({
-      title: "Time clock: auto clock-out",
-      message: `${employeeName} was auto-clocked-out after ${settings.autoClockout.maxShiftHours}h (clocked in ${entry.clockIn.toISOString()}). If this is wrong, fix the times in My Hours.`,
+      title: translate(lang, "push.autoClockoutTitle"),
+      message: translate(lang, "push.autoClockoutBody", {
+        name: employeeName,
+        hours: settings.autoClockout.maxShiftHours,
+        time: entry.clockIn.toLocaleString(settings.locale.bcp47, { timeZone: APP_TZ, dateStyle: "short", timeStyle: "short" }),
+      }),
     });
   }
   return stale.length;

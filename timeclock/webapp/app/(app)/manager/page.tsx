@@ -25,6 +25,8 @@ import { localDay } from "@/components/entries/edit-entry-dialog";
 import { CorrectionRequest, type PendingCorrection } from "@/components/corrections/correction-request";
 import { LeaveApprovals } from "@/components/leave/leave-approvals";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, STATUS_TEXT } from "@/components/ui/status-badge";
+import { useT } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import {
@@ -81,6 +83,7 @@ function LiveRow({
 }) {
   const timer = useLiveTimer(e.clockIn); // also re-renders every second
   const loc = useLocale();
+  const t = useT();
   const now = Date.now();
   const todayMin = closedMin + (now - new Date(e.clockIn).getTime()) / 60_000;
   // Progress from clock-in to their rostered end.
@@ -105,12 +108,12 @@ function LiveRow({
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{e.employeeName}</div>
         <div className="text-xs text-muted-foreground">
-          {e.onBreak ? "On break" : "Working"} · today {hm(todayMin)}
+          {e.onBreak ? t("mgr.onBreak") : t("mgr.working")} · {t("clock.todayTotal", { total: hm(todayMin) })}
           {shift &&
             (overMin > 0 ? (
-              <span className="text-amber-400"> · {Math.round(overMin)}m past rostered end</span>
+              <span className={STATUS_TEXT.warning}> · {t("mgr.pastRosteredEnd", { n: Math.round(overMin) })}</span>
             ) : (
-              <> · rostered until {loc.time(shift.scheduledEnd)}</>
+              <> · {t("clock.rosteredUntil", { time: loc.time(shift.scheduledEnd) })}</>
             ))}
         </div>
         {shift && (
@@ -132,6 +135,7 @@ function LiveRow({
 /** Rostered today, not clocked in: how long until due, or how late. */
 function DueRow({ s, today }: { s: RosterShift; today: string }) {
   const loc = useLocale();
+  const t = useT();
   const start = new Date(s.scheduledStart).getTime();
   const min = Math.round((start - Date.now()) / 60_000);
   const missed = s.status === "no_show";
@@ -145,20 +149,16 @@ function DueRow({ s, today }: { s: RosterShift; today: string }) {
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{s.employeeName}</div>
         <div className="text-xs text-muted-foreground">
-          Rostered {loc.time(s.scheduledStart)}–{loc.time(s.scheduledEnd)}
+          {t("mgr.rosteredRange", { start: loc.time(s.scheduledStart), end: loc.time(s.scheduledEnd) })}
         </div>
       </div>
-      <Badge
-        className={`border-transparent ${
-          missed
-            ? "bg-destructive/15 text-destructive"
-            : late
-              ? "bg-amber-500/15 text-amber-300"
-              : "bg-muted text-muted-foreground"
-        }`}
-      >
-        {missed ? "Didn't show" : late ? `Late ${hm(-min)}` : `Due in ${hm(min)}`}
-      </Badge>
+      {missed ? (
+        <StatusBadge status="flag">{t("mgr.didntShow")}</StatusBadge>
+      ) : late ? (
+        <StatusBadge status="warning">{t("mgr.lateBy", { time: hm(-min) })}</StatusBadge>
+      ) : (
+        <Badge className="border-transparent bg-muted text-muted-foreground">{t("mgr.dueIn", { time: hm(min) })}</Badge>
+      )}
     </Link>
   );
 }
@@ -167,6 +167,7 @@ export default function ManagerPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const loc = useLocale();
+  const t = useT();
   const canSee =
     session && ["lead", "manager", "admin"].includes(session.employee.role);
 
@@ -215,7 +216,7 @@ export default function ManagerPage() {
       apiPost(`/corrections/${id}/${action}`, note ? { note } : {}),
     onSuccess: (_data, v) => {
       toast.success(
-        v.action === "approve" ? "Correction approved." : "Correction declined.",
+        v.action === "approve" ? t("toast.correctionApproved") : t("toast.correctionDeclined"),
       );
       qc.invalidateQueries();
     },
@@ -237,12 +238,12 @@ export default function ManagerPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-destructive">Access denied</CardTitle>
-            <CardDescription>Lead role or above required.</CardDescription>
+            <CardTitle className="text-destructive">{t("mgr.accessDenied")}</CardTitle>
+            <CardDescription>{t("mgr.leadRequired")}</CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild variant="secondary">
-              <Link href="/pin">PIN sign-in</Link>
+              <Link href="/pin">{t("common.pinSignIn")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -255,8 +256,8 @@ export default function ManagerPage() {
       {/* Live who-is-in board */}
       <Card>
         <CardHeader>
-          <CardTitle>On the clock now</CardTitle>
-          <CardDescription>Live — refreshes every 15 seconds</CardDescription>
+          <CardTitle>{t("mgr.onClockTitle")}</CardTitle>
+          <CardDescription>{t("mgr.onClockHint")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-1">
           {board.isLoading && <Skeleton className="h-11 w-full" />}
@@ -267,7 +268,7 @@ export default function ManagerPage() {
                 className="size-2.5 shrink-0 rounded-full bg-muted-foreground/50"
               />
               <span className="text-sm text-muted-foreground">
-                Nobody clocked in.
+                {t("mgr.nobodyIn")}
               </span>
             </div>
           )}
@@ -283,7 +284,7 @@ export default function ManagerPage() {
             <>
               <Separator className="my-2" />
               <div className="text-xs font-medium text-muted-foreground">
-                Rostered today, not clocked in
+                {t("mgr.rosteredNotIn")}
               </div>
               {notIn.map((s) => (
                 <DueRow key={s.rosterId} s={s} today={today} />
@@ -296,8 +297,8 @@ export default function ManagerPage() {
       {/* Staff self-edits to acknowledge / dispute + day approval */}
       <Card>
         <CardHeader>
-          <CardTitle>Staff changes to check</CardTitle>
-          <CardDescription>Times staff changed themselves, with their reason</CardDescription>
+          <CardTitle>{t("mgr.staffChangesTitle")}</CardTitle>
+          <CardDescription>{t("mgr.staffChangesHint")}</CardDescription>
           <CardAction>
             <Badge variant={reviewPending + reviewDisputed > 0 ? "default" : "secondary"}>{reviewPending}</Badge>
           </CardAction>
@@ -307,13 +308,13 @@ export default function ManagerPage() {
           {review.data && (
             <p className="text-sm text-muted-foreground">
               {reviewPending === 0 && reviewDisputed === 0
-                ? "Nothing to check."
-                : `${reviewPending} to acknowledge${reviewDisputed ? ` · ${reviewDisputed} in dispute` : ""}`}
+                ? t("mgr.nothingToCheck")
+                : `${t("mgr.toAcknowledge", { n: reviewPending })}${reviewDisputed ? ` · ${t("mgr.inDispute", { n: reviewDisputed })}` : ""}`}
             </p>
           )}
           <Button asChild className="self-start">
             <Link href="/manager/review">
-              <ClipboardCheck /> Review &amp; approve days
+              <ClipboardCheck /> {t("mgr.reviewApprove")}
             </Link>
           </Button>
         </CardContent>
@@ -322,7 +323,7 @@ export default function ManagerPage() {
       {/* Correction approval queue */}
       <Card>
         <CardHeader>
-          <CardTitle>Correction requests</CardTitle>
+          <CardTitle>{t("mgr.correctionsTitle")}</CardTitle>
           <CardAction>
             <Badge variant="secondary">
               {corrections.data?.corrections.length ?? 0}
@@ -332,7 +333,7 @@ export default function ManagerPage() {
         <CardContent className="flex flex-col gap-3">
           {corrections.isLoading && <Skeleton className="h-20 w-full" />}
           {corrections.data?.corrections.length === 0 && (
-            <p className="text-sm text-muted-foreground">None pending.</p>
+            <p className="text-sm text-muted-foreground">{t("leaveApprove.none")}</p>
           )}
           {corrections.data?.corrections.map((cr) => (
             <CorrectionRequest
@@ -356,7 +357,7 @@ export default function ManagerPage() {
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
           >
             <ChartColumn className="size-5 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">Dashboard &amp; calendar</span>
+            <span className="flex-1 text-sm font-medium">{t("mgr.linkInsights")}</span>
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
           <Separator />
@@ -365,7 +366,7 @@ export default function ManagerPage() {
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
           >
             <ClipboardCheck className="size-5 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">Timesheet review</span>
+            <span className="flex-1 text-sm font-medium">{t("route.managerReview")}</span>
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
           <Separator />
@@ -374,7 +375,7 @@ export default function ManagerPage() {
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
           >
             <Pencil className="size-5 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">Edit entries</span>
+            <span className="flex-1 text-sm font-medium">{t("route.managerEntries")}</span>
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
           <Separator />
@@ -385,7 +386,7 @@ export default function ManagerPage() {
                 className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
               >
                 <Wallet className="size-5 text-muted-foreground" />
-                <span className="flex-1 text-sm font-medium">Pay</span>
+                <span className="flex-1 text-sm font-medium">{t("route.managerPay")}</span>
                 <ChevronRight className="size-5 text-muted-foreground" />
               </Link>
               <Separator />
@@ -396,7 +397,7 @@ export default function ManagerPage() {
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
           >
             <CalendarRange className="size-5 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">Pay periods</span>
+            <span className="flex-1 text-sm font-medium">{t("route.managerPayPeriods")}</span>
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
           <Separator />
@@ -405,7 +406,7 @@ export default function ManagerPage() {
             className="flex min-h-12 items-center gap-3 px-4 transition-colors hover:bg-accent"
           >
             <ScrollText className="size-5 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">Audit log</span>
+            <span className="flex-1 text-sm font-medium">{t("mgr.linkAudit")}</span>
             <ChevronRight className="size-5 text-muted-foreground" />
           </Link>
         </CardContent>

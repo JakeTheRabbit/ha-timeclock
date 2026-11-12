@@ -20,6 +20,7 @@ import { periodWindowContaining } from "@/server/domain/payperiod/periods";
 import { hydrateEntries } from "@/server/routes/entries";
 import { notify } from "@/server/integrations/notify";
 import { notifyEmployee } from "@/server/integrations/notify/personal";
+import { serverT } from "@/server/i18n";
 
 // Day review (0.10.0): staff change their own days and give a reason; the
 // manager sees each change on a list and either ACKNOWLEDGES it (read it, no
@@ -229,11 +230,12 @@ export const review = new Hono<AppEnv>()
     const isOwner = mod.employeeId === me.id;
     if (!isOwner && !roleAtLeast(me.role, "lead")) return c.json({ error: "forbidden" }, 403);
     const row = await postMessage(mod, me, body.data.body);
+    const { t } = await serverT();
     if (isOwner) {
-      void notify({ title: "Time Clock: dispute reply", message: `${me.displayName}: ${body.data.body}` });
+      void notify({ title: t("push.disputeReplyTitle"), message: `${me.displayName}: ${body.data.body}` });
     } else {
       const emp = await employeeById(mod.employeeId);
-      if (emp) void notifyEmployee(emp, { title: "Time Clock", message: `${me.displayName}: ${body.data.body}` });
+      if (emp) void notifyEmployee(emp, { title: t("push.app"), message: `${me.displayName}: ${body.data.body}` });
     }
     return c.json({ ok: true, messageId: row.id }, 201);
   })
@@ -336,11 +338,13 @@ export const review = new Hono<AppEnv>()
     });
     await postMessage(mod, me, body.data.message);
     const emp = await employeeById(mod.employeeId);
-    if (emp)
+    if (emp) {
+      const { t } = await serverT();
       void notifyEmployee(emp, {
-        title: "Time Clock: please check your hours",
-        message: `${me.displayName} has a question about your change on ${mod.day}: ${body.data.message}`,
+        title: t("push.checkHoursTitle"),
+        message: t("push.checkHoursBody", { name: me.displayName, day: mod.day, message: body.data.message }),
       });
+    }
     return c.json({ ok: true });
   })
 

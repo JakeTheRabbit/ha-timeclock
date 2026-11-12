@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { liveMinutes, shiftTime, weekDays } from "@/components/entries/month-calendar";
 import { localDay, type EntryRow } from "@/components/entries/edit-entry-dialog";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type Status } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -67,12 +68,13 @@ const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: APP_TZ
 
 type TFn = (key: MessageKey, vars?: TVars) => string;
 
-const STATUS_BADGE: Record<Compare["shifts"][number]["status"], string> = {
-  ok: "border-transparent bg-emerald-500/15 text-emerald-300",
-  in_progress: "border-transparent bg-sky-500/15 text-sky-300",
-  upcoming: "border-transparent bg-secondary text-secondary-foreground",
-  late: "border-transparent bg-amber-500/15 text-amber-300",
-  no_show: "border-transparent bg-rose-500/15 text-rose-300",
+// "upcoming" has no status colour: it keeps the plain secondary badge.
+const STATUS_TONE: Record<Compare["shifts"][number]["status"], Status | null> = {
+  ok: "approved",
+  in_progress: "open",
+  upcoming: null,
+  late: "warning",
+  no_show: "declined",
 };
 
 const STATUS_KEY: Record<Compare["shifts"][number]["status"], MessageKey> = {
@@ -325,10 +327,16 @@ export default function RosterPage() {
                     ? t("roster.inAt", { time: loc.time(s.actualIn) })
                     : t("roster.noPunch")}
                 </span>
-                <Badge variant="secondary" className={cn("ml-auto capitalize", STATUS_BADGE[s.status])}>
-                  {t(STATUS_KEY[s.status])}
-                  {s.lateMin > 0 && ` ${t("roster.lateSuffix", { n: s.lateMin })}`}
-                </Badge>
+                {STATUS_TONE[s.status] ? (
+                  <StatusBadge status={STATUS_TONE[s.status]!} className="ml-auto capitalize">
+                    {t(STATUS_KEY[s.status])}
+                    {s.lateMin > 0 && ` ${t("roster.lateSuffix", { n: s.lateMin })}`}
+                  </StatusBadge>
+                ) : (
+                  <Badge variant="secondary" className="ml-auto capitalize">
+                    {t(STATUS_KEY[s.status])}
+                  </Badge>
+                )}
               </div>
             ))}
           </CardContent>

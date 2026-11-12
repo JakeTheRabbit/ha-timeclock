@@ -4,6 +4,7 @@ import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { hours, type delta, type SliceEmployee } from "@/lib/insights";
 import { useLocale } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 export const seriesVar = (slot: number) => `var(--series-${(slot % 8) + 1})`;
@@ -41,6 +42,7 @@ export function StatTile({
   /** colour a rise amber (flags); leave undefined for neutral numbers */
   upIsBad?: boolean;
 }) {
+  const t = useT();
   const bad = !!change && change.dir === (upIsBad ? "up" : "down");
   return (
     <div className="flex flex-col gap-0.5 rounded-xl border border-border bg-card p-3">
@@ -50,7 +52,7 @@ export function StatTile({
         {change && (
           <span
             className={cn("text-xs tabular-nums", upIsBad !== undefined && bad ? "text-[var(--warning-color)]" : "text-muted-foreground")}
-            title={prev ? `Previous period: ${prev}` : undefined}
+            title={prev ? t("insights.prevPeriod", { value: prev }) : undefined}
           >
             {change.dir === "up" ? "▲" : change.dir === "down" ? "▼" : "="} {change.pct}%
           </span>
@@ -123,6 +125,7 @@ export function DailyHoursChart({
   /** click on one person's segment of a day */
   onSegment?: (day: string, employeeId: string) => void;
 }) {
+  const tr = useT();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
   const H = 200;
@@ -148,7 +151,7 @@ export function DailyHoursChart({
           <div className="mb-1 font-medium">
             {dayLabel(d)} · {hours(Math.round(totalOf(d) * 60))}
           </div>
-          {rows.length === 0 && <div className="text-muted-foreground">Nobody worked</div>}
+          {rows.length === 0 && <div className="text-muted-foreground">{tr("insights.nobodyWorked")}</div>}
           {rows.map((r) => (
             <div key={r.p.id} className="flex items-center gap-2">
               <span className="size-2 rounded-sm" style={{ background: seriesVar(r.p.slot) }} />
@@ -164,7 +167,7 @@ export function DailyHoursChart({
   return (
     <div ref={ref} className="relative w-full" onMouseLeave={() => setTip(null)}>
       {width > 0 && (
-        <svg width={width} height={H + pad.t + pad.b} role="img" aria-label="Hours worked per day, stacked by person">
+        <svg width={width} height={H + pad.t + pad.b} role="img" aria-label={tr("insights.chartAria")}>
           {ticks.map((t) => (
             <g key={t}>
               <line x1={pad.l} x2={width - pad.r} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeWidth={1} />
@@ -242,6 +245,7 @@ export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
   // grid rows are Mon..Sun; show them from the site's first weekday
   const order = loc.weekStart === 0 ? [6, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
   const dayName = (wd: number) => loc.weekday((wd + 1) % 7);
+  const t = useT();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
   const max = Math.max(1, ...grid.flat());
@@ -254,7 +258,7 @@ export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
   return (
     <div ref={ref} className="relative w-full" onMouseLeave={() => setTip(null)}>
       {width > 0 && (
-        <svg width={width} height={ch * 7 + 22} role="img" aria-label="Person-hours on site by weekday and hour">
+        <svg width={width} height={ch * 7 + 22} role="img" aria-label={t("insights.heatmapAria")}>
           {order.map((wd, ri) => ({ wd, ri, row: grid[wd] })).map(({ wd, ri, row }) => (
             <g key={wd}>
               <text x={padL - 6} y={ri * ch + ch / 2} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-[10px]">
@@ -270,7 +274,7 @@ export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
                   rx={2}
                   fill={fill(v)}
                   tabIndex={v > 0 ? 0 : -1}
-                  aria-label={`${dayName(wd)} ${h}:00: ${(v / 60).toFixed(1)} person-hours`}
+                  aria-label={`${dayName(wd)} ${h}:00: ${t("insights.personHours", { n: (v / 60).toFixed(1) })}`}
                   onMouseEnter={() =>
                     setTip({
                       x: padL + h * cell + cell / 2,
@@ -280,7 +284,7 @@ export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
                           <div className="font-medium">
                             {dayName(wd)} {String(h).padStart(2, "0")}:00–{String((h + 1) % 24).padStart(2, "0")}:00
                           </div>
-                          <div className="tabular-nums">{(v / 60).toFixed(1)} person-hours</div>
+                          <div className="tabular-nums">{t("insights.personHours", { n: (v / 60).toFixed(1) })}</div>
                         </>
                       ),
                     })
@@ -303,7 +307,7 @@ export function OnSiteHeatmap({ grid }: { grid: number[][] }) {
           className="h-2 w-28 rounded-sm"
           style={{ background: "linear-gradient(90deg, color-mix(in oklab, var(--seq-high) 15%, var(--card)), var(--seq-high))" }}
         />
-        <span>{(max / 60).toFixed(1)} person-h</span>
+        <span>{t("insights.personH", { n: (max / 60).toFixed(1) })}</span>
       </div>
       <Tooltip tip={tip} />
     </div>

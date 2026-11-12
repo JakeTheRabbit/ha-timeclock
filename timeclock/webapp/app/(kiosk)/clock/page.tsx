@@ -182,7 +182,7 @@ export default function ClockPage() {
       flushQueue(me).then((n) => {
         setQueue(queuedPunches(me));
         if (n > 0) {
-          toast.success(t("clock.syncedPunches", { n }));
+          toast.success(t(n === 1 ? "clock.syncedPunches.one" : "clock.syncedPunches.other", { n }));
           qc.invalidateQueries({ queryKey: ["clock-status"] });
         }
       });
@@ -396,13 +396,13 @@ export default function ClockPage() {
               overrun ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-card",
             )}
           >
-            <div className={cn("flex items-center gap-2", overrun && "text-amber-300")}>
+            <div className={cn("flex items-center gap-2", overrun && "text-amber-700 dark:text-amber-300")}>
               <Coffee className="size-5" aria-hidden="true" />
               {open.onBreak.paid ? t("clock.onBreakPaid") : t("clock.onBreakUnpaid")} ·{" "}
               <span className="font-mono tabular-nums">{breakTimer}</span>
             </div>
             {breakEndsAt && (
-              <div className={cn("text-sm", overrun ? "font-medium text-amber-300" : "text-muted-foreground")}>
+              <div className={cn("text-sm", overrun ? "font-medium text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>
                 {t(open.onBreak.paid ? "clock.restEnds" : "clock.mealEnds", { time: loc.time(breakEndsAt, HM) })}
                 {overrun && <> · {t("clock.breakOverrun", { n: overrunMin })}</>}
               </div>
@@ -529,9 +529,9 @@ export default function ClockPage() {
       )}
 
       {queued > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           <CloudOff className="size-4" aria-hidden="true" />
-          {t("clock.offlinePending", { n: queued })}
+          {t(queued === 1 ? "clock.offlinePending.one" : "clock.offlinePending.other", { n: queued })}
           {lastQueued && <> · {loc.time(lastQueued.queuedAt)}</>}
         </div>
       )}

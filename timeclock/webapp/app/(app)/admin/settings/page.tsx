@@ -62,6 +62,7 @@ interface SectionProps {
  */
 export default function SettingsPage() {
   const qc = useQueryClient();
+  const t = useT();
   const { session, isLoading } = useSession();
   const isAdmin = session?.employee.role === "admin";
   const [doc, setDoc] = useState<{ base: Settings; draft: Settings } | null>(null);
@@ -107,14 +108,14 @@ export default function SettingsPage() {
       setDoc({ base: res.settings, draft: res.settings });
       setJsonText(null);
       setIssues([]);
-      toast.success("Settings saved (audited).");
+      toast.success(t("settings.saved"));
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["locale"] });
     },
     onError: (e) => {
       const found = e instanceof ApiError ? issuesFromBody(e.body) : [];
       setIssues(found);
-      toast.error(found.length ? "Not saved — fix the highlighted settings." : apiErrorText(e));
+      toast.error(found.length ? t("settings.notSaved") : apiErrorText(e));
     },
   });
 
@@ -131,7 +132,7 @@ export default function SettingsPage() {
       <Container>
         <Card>
           <CardContent>
-            <p className="text-sm text-destructive">Admin role required.</p>
+            <p className="text-sm text-destructive">{t("common.adminRequired")}</p>
           </CardContent>
         </Card>
       </Container>
@@ -146,7 +147,7 @@ export default function SettingsPage() {
     if (typeof r === "string") parseError = r;
     else if (Array.isArray(r)) jsonIssues = r;
   }
-  if (jsonIssues.length) parseError = "fix the problems below";
+  if (jsonIssues.length) parseError = t("settings.jsonFixBelow");
   const dirty = patch !== undefined || parseError != null;
   const props = doc ? { doc: doc.draft, set, issues } : null;
 
@@ -165,17 +166,14 @@ export default function SettingsPage() {
 
           <details className="group rounded-xl border border-border bg-card">
             <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
-              Advanced (JSON)
+              {t("settings.advancedJson")}
               <span className="text-xs font-normal text-muted-foreground">
-                notifications, door access, anti-fraud, kiosk, everything else
+                {t("settings.advancedJsonSub")}
               </span>
               <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
             </summary>
             <div className="flex flex-col gap-3 border-t border-border p-4">
-              <p className="text-xs text-muted-foreground">
-                The whole settings document, including the fields above. Edits here join the same
-                unsaved changes; the server validates and audits every save.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("settings.advancedJsonHint")}</p>
               <textarea
                 value={jsonText ?? JSON.stringify(props.doc, null, 2)}
                 onChange={(e) => {
@@ -207,16 +205,16 @@ export default function SettingsPage() {
       {dirty && (
         <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-30 flex flex-col gap-2 rounded-xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Unsaved changes</span>
+            <span className="text-sm font-medium">{t("settings.unsaved")}</span>
             <div className="ml-auto flex gap-2">
               <Button variant="ghost" onClick={discard} disabled={save.isPending}>
-                <Undo2 /> Discard
+                <Undo2 /> {t("settings.discard")}
               </Button>
               <Button
                 onClick={() => save.mutate()}
                 disabled={parseError != null || patch === undefined || save.isPending}
               >
-                <Save /> Save
+                <Save /> {t("common.save")}
               </Button>
             </div>
           </div>
@@ -224,7 +222,7 @@ export default function SettingsPage() {
             <ul className="flex flex-col gap-0.5 text-xs text-destructive">
               {issues.map((i) => (
                 <li key={i.path + i.message}>
-                  <span className="font-mono">{i.path || "(document)"}</span>: {i.message}
+                  <span className="font-mono">{i.path || t("settings.document")}</span>: {i.message}
                 </li>
               ))}
             </ul>
@@ -272,12 +270,13 @@ function ThemeSection() {
 
 type Language = Settings["locale"]["language"];
 
+// Each language in its own name, so it is findable whatever the UI language is.
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: "en", label: "English" },
-  { value: "de", label: "German (Deutsch)" },
-  { value: "fr", label: "French (Français)" },
-  { value: "sv", label: "Swedish (Svenska)" },
-  { value: "da", label: "Danish (Dansk)" },
+  { value: "de", label: "Deutsch" },
+  { value: "fr", label: "Français" },
+  { value: "sv", label: "Svenska" },
+  { value: "da", label: "Dansk" },
 ];
 
 /**
@@ -289,33 +288,30 @@ const LANGUAGES: { value: Language; label: string }[] = [
  * the worked-public-holiday premium below. Every derived field stays editable.
  */
 function LocaleSection({ doc, set, issues, merge }: SectionProps & { merge: (patch: unknown) => void }) {
+  const t = useT();
   const l = doc.locale;
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Region and language</CardTitle>
-        <CardDescription>
-          Pick a country to load documented defaults for date/number formatting, week start,
-          currency, timezone, public holidays, and a starting overtime rule. Every field below
-          stays editable.
-        </CardDescription>
+        <CardTitle>{t("settings.regionTitle")}</CardTitle>
+        <CardDescription>{t("settings.regionHint")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <Field
           id="locale-country"
-          label="Country"
+          label={t("settings.country")}
           issues={issuesAt(issues, "locale.country")}
-          hint="Choosing a country fills in its locale and overtime defaults (review them below before saving). NZ keeps its built-in holiday engine and statutory holiday pay; other countries use date-holidays."
+          hint={t("settings.countryHint")}
         >
           <Select
             value={l.country}
             onValueChange={(v) => {
               merge(applyCountryPreset(v as CountryCode));
-              toast.info(`${COUNTRIES[v as CountryCode].name} defaults filled in — Save to apply.`);
+              toast.info(t("settings.countryApplied", { country: COUNTRIES[v as CountryCode].name }));
             }}
           >
             <SelectTrigger id="locale-country">
-              <SelectValue placeholder="Select a country" />
+              <SelectValue placeholder={t("settings.selectCountry")} />
             </SelectTrigger>
             <SelectContent>
               {Object.values(COUNTRIES).map((c) => (
@@ -330,13 +326,13 @@ function LocaleSection({ doc, set, issues, merge }: SectionProps & { merge: (pat
         <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
           <Field
             id="locale-language"
-            label="Language"
+            label={t("me.lang.title")}
             issues={issuesAt(issues, "locale.language")}
-            hint="Interface language. Some admin pages are still English only."
+            hint={t("settings.languageHint")}
           >
             <Select value={l.language} onValueChange={(v) => set("locale.language", v as Language)}>
               <SelectTrigger id="locale-language">
-                <SelectValue placeholder="Select a language" />
+                <SelectValue placeholder={t("settings.selectLanguage")} />
               </SelectTrigger>
               <SelectContent>
                 {LANGUAGES.map((x) => (
@@ -350,9 +346,9 @@ function LocaleSection({ doc, set, issues, merge }: SectionProps & { merge: (pat
 
           <Field
             id="locale-weekstart"
-            label="Week starts on"
+            label={t("settings.weekStart")}
             issues={issuesAt(issues, "locale.weekStart")}
-            hint="Used for calendar display. Note: weekly overtime is currently always calculated on a Monday–Sunday week regardless of this setting."
+            hint={t("settings.weekStartHint")}
           >
             <Select
               value={l.weekStart.toString()}
@@ -362,59 +358,59 @@ function LocaleSection({ doc, set, issues, merge }: SectionProps & { merge: (pat
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">Monday</SelectItem>
-                <SelectItem value="0">Sunday</SelectItem>
+                <SelectItem value="1">{t("settings.monday")}</SelectItem>
+                <SelectItem value="0">{t("settings.sunday")}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
 
           <Field
             id="locale-currency"
-            label="Currency"
+            label={t("settings.currency")}
             issues={issuesAt(issues, "locale.currency")}
-            hint="ISO 4217 code, display only. This is not tax or payroll software."
+            hint={t("settings.currencyHint")}
           >
             <Input
               id="locale-currency"
               value={l.currency}
-              placeholder="e.g. NZD"
+              placeholder={t("settings.eg", { example: "NZD" })}
               onChange={(e) => set("locale.currency", e.target.value)}
             />
           </Field>
 
           <Field
             id="locale-bcp47"
-            label="Formatting locale"
+            label={t("settings.bcp47")}
             issues={issuesAt(issues, "locale.bcp47")}
-            hint="BCP-47 tag for date and number formatting (e.g. en-GB, de-DE, fr-FR)."
+            hint={t("settings.bcp47Hint")}
           >
             <Input
               id="locale-bcp47"
               value={l.bcp47}
-              placeholder="e.g. en-NZ"
+              placeholder={t("settings.eg", { example: "en-NZ" })}
               onChange={(e) => set("locale.bcp47", e.target.value)}
             />
           </Field>
 
           <Field
             id="locale-region"
-            label="Holiday region"
+            label={t("settings.holidayRegion")}
             issues={issuesAt(issues, "locale.holidayRegion")}
-            hint="Optional state / province / canton for public holidays — e.g. US state (CA), CA province (ON), CH canton (ZH), DE Bundesland (BY). Leave blank for country-level holidays only."
+            hint={t("settings.holidayRegionHint")}
           >
             <Input
               id="locale-region"
               value={l.holidayRegion}
-              placeholder="optional"
+              placeholder={t("settings.optional")}
               onChange={(e) => set("locale.holidayRegion", e.target.value)}
             />
           </Field>
 
           <Field
             id="locale-holidaypay"
-            label="Worked-public-holiday premium"
+            label={t("settings.holidayPremium")}
             issues={issuesAt(issues, "locale.holidayPayMultiplier")}
-            hint="NZ uses its own statutory holiday pay; this applies to other countries. 1 = no premium."
+            hint={t("settings.holidayPremiumHint")}
           >
             <NumField
               id="locale-holidaypay"
@@ -425,11 +421,7 @@ function LocaleSection({ doc, set, issues, merge }: SectionProps & { merge: (pat
           </Field>
         </div>
 
-        <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-          Overtime and holiday defaults are starting points — verify them against your local
-          law, awards, or collective agreements before relying on them. This add-on does not
-          calculate income tax or withholding; that is your payroll system&apos;s job.
-        </p>
+        <p className="border-t border-border pt-4 text-xs text-muted-foreground">{t("settings.legalNote")}</p>
       </CardContent>
     </Card>
   );
@@ -437,34 +429,40 @@ function LocaleSection({ doc, set, issues, merge }: SectionProps & { merge: (pat
 
 /** The rules people actually change: pay period, overtime, rounding, breaks, auto clock-out. */
 function PayRulesSection({ doc, set, issues }: SectionProps) {
+  const t = useT();
   const at = (p: string) => issuesAt(issues, p);
+  const adapters = useQuery({
+    queryKey: ["report-adapters"],
+    queryFn: () =>
+      apiGet<{ adapters: { id: string; label: string; implemented: boolean }[]; configured?: string }>(
+        "/reports/adapters",
+      ),
+  });
+  const adapterList = adapters.data?.adapters ?? [];
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Pay rules</CardTitle>
-        <CardDescription>
-          How hours are cut into pay periods, when overtime starts, rounding, automatic
-          breaks and forgotten clock-outs.
-        </CardDescription>
+        <CardTitle>{t("settings.payRulesTitle")}</CardTitle>
+        <CardDescription>{t("settings.payRulesHint")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <Group title="Pay period">
-          <Field id="pp-type" label="Length" issues={at("payPeriod.type")}>
+        <Group title={t("settings.payPeriod")}>
+          <Field id="pp-type" label={t("settings.length")} issues={at("payPeriod.type")}>
             <Select value={doc.payPeriod.type} onValueChange={(v) => set("payPeriod.type", v)}>
               <SelectTrigger id="pp-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="fortnightly">Fortnightly</SelectItem>
+                <SelectItem value="weekly">{t("settings.weekly")}</SelectItem>
+                <SelectItem value="fortnightly">{t("settings.fortnightly")}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
           <Field
             id="pp-anchor"
-            label="Starts on (anchor)"
+            label={t("settings.anchor")}
             issues={at("payPeriod.anchor")}
-            hint="Any first day of a pay period, usually a Monday; periods repeat forwards and backwards from it."
+            hint={t("settings.anchorHint")}
           >
             <Input
               id="pp-anchor"
@@ -475,8 +473,8 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
           </Field>
         </Group>
 
-        <Group title="Overtime">
-          <Field id="ot-daily" label="Daily overtime after" issues={at("overtime.dailyThresholdMin")}>
+        <Group title={t("settings.overtime")}>
+          <Field id="ot-daily" label={t("settings.otDaily")} issues={at("overtime.dailyThresholdMin")}>
             <NumField
               id="ot-daily"
               value={doc.overtime.dailyThresholdMin}
@@ -485,7 +483,7 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
               onChange={(v) => set("overtime.dailyThresholdMin", v)}
             />
           </Field>
-          <Field id="ot-weekly" label="Weekly overtime after" issues={at("overtime.weeklyThresholdMin")}>
+          <Field id="ot-weekly" label={t("settings.otWeekly")} issues={at("overtime.weeklyThresholdMin")}>
             <NumField
               id="ot-weekly"
               value={doc.overtime.weeklyThresholdMin}
@@ -494,7 +492,7 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
               onChange={(v) => set("overtime.weeklyThresholdMin", v)}
             />
           </Field>
-          <Field id="ot-m1" label="Overtime rate" issues={at("overtime.multiplier1")}>
+          <Field id="ot-m1" label={t("settings.otRate")} issues={at("overtime.multiplier1")}>
             <NumField
               id="ot-m1"
               value={doc.overtime.multiplier1}
@@ -505,9 +503,9 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
           <div className="hidden sm:block" />
           <Field
             id="ot-daily2"
-            label="Second tier after (daily)"
+            label={t("settings.ot2After")}
             issues={at("overtime.daily2ThresholdMin")}
-            hint="Optional, e.g. 12h at 2×. Blank = no second tier."
+            hint={t("settings.ot2Hint")}
           >
             <NumField
               id="ot-daily2"
@@ -518,7 +516,7 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
               onChange={(v) => set("overtime.daily2ThresholdMin", v)}
             />
           </Field>
-          <Field id="ot-m2" label="Second tier rate" issues={at("overtime.multiplier2")}>
+          <Field id="ot-m2" label={t("settings.ot2Rate")} issues={at("overtime.multiplier2")}>
             <NumField
               id="ot-m2"
               value={doc.overtime.multiplier2}
@@ -528,8 +526,8 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
           </Field>
         </Group>
 
-        <Group title="Rounding">
-          <Field id="rnd-inc" label="Round punches to" issues={at("rounding.incrementMin")}>
+        <Group title={t("settings.rounding")}>
+          <Field id="rnd-inc" label={t("settings.roundTo")} issues={at("rounding.incrementMin")}>
             <Select
               value={String(doc.rounding.incrementMin)}
               onValueChange={(v) => set("rounding.incrementMin", Number(v))}
@@ -538,33 +536,33 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">1 minute (no rounding)</SelectItem>
-                <SelectItem value="5">5 minutes</SelectItem>
-                <SelectItem value="10">10 minutes</SelectItem>
-                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="1">{t("settings.round1")}</SelectItem>
+                <SelectItem value="5">{t("settings.roundN", { n: 5 })}</SelectItem>
+                <SelectItem value="10">{t("settings.roundN", { n: 10 })}</SelectItem>
+                <SelectItem value="15">{t("settings.roundN", { n: 15 })}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
-          <Field id="rnd-mode" label="Direction" issues={at("rounding.mode")}>
+          <Field id="rnd-mode" label={t("settings.direction")} issues={at("rounding.mode")}>
             <Select value={doc.rounding.mode} onValueChange={(v) => set("rounding.mode", v)}>
               <SelectTrigger id="rnd-mode">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="nearest">Nearest</SelectItem>
-                <SelectItem value="up">Up</SelectItem>
-                <SelectItem value="down">Down</SelectItem>
+                <SelectItem value="nearest">{t("settings.nearest")}</SelectItem>
+                <SelectItem value="up">{t("settings.up")}</SelectItem>
+                <SelectItem value="down">{t("settings.down")}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
         </Group>
 
-        <Group title="Automatic break">
+        <Group title={t("settings.autoBreak")}>
           <Field
             id="brk-after"
-            label="For shifts longer than"
+            label={t("settings.shiftsLongerThan")}
             issues={at("breaks.autoDeductAfterMin")}
-            hint="When nobody took a break, this much is deducted."
+            hint={t("settings.autoBreakHint")}
           >
             <NumField
               id="brk-after"
@@ -574,7 +572,7 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
               onChange={(v) => set("breaks.autoDeductAfterMin", v)}
             />
           </Field>
-          <Field id="brk-min" label="Deduct" issues={at("breaks.autoDeductMin")}>
+          <Field id="brk-min" label={t("settings.deduct")} issues={at("breaks.autoDeductMin")}>
             <NumField
               id="brk-min"
               value={doc.breaks.autoDeductMin}
@@ -584,16 +582,16 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
           </Field>
         </Group>
 
-        <Group title="Forgotten clock-out">
+        <Group title={t("settings.forgottenOut")}>
           <div className="sm:col-span-2">
             <ToggleRow
               id="aco-enabled"
-              label="Clock people out automatically after a very long shift"
+              label={t("settings.autoClockout")}
               checked={doc.autoClockout.enabled}
               onCheckedChange={(v) => set("autoClockout.enabled", v)}
             />
           </div>
-          <Field id="aco-max" label="Longest shift" issues={at("autoClockout.maxShiftHours")}>
+          <Field id="aco-max" label={t("settings.longestShift")} issues={at("autoClockout.maxShiftHours")}>
             <NumField
               id="aco-max"
               value={doc.autoClockout.maxShiftHours}
@@ -601,6 +599,32 @@ function PayRulesSection({ doc, set, issues }: SectionProps) {
               disabled={!doc.autoClockout.enabled}
               onChange={(v) => set("autoClockout.maxShiftHours", v)}
             />
+          </Field>
+        </Group>
+
+        <Group title={t("settings.payrollExport")}>
+          <Field
+            id="payroll-adapter"
+            label={t("settings.payrollFormat")}
+            issues={at("payroll.adapter")}
+            hint={t("settings.payrollFormatHint")}
+          >
+            <Select value={doc.payroll.adapter} onValueChange={(v) => set("payroll.adapter", v)}>
+              <SelectTrigger id="payroll-adapter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {adapterList.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.label}
+                  </SelectItem>
+                ))}
+                {/* Keep an unknown stored id selectable so it isn't silently dropped. */}
+                {!adapterList.some((a) => a.id === doc.payroll.adapter) && (
+                  <SelectItem value={doc.payroll.adapter}>{doc.payroll.adapter}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
           </Field>
         </Group>
       </CardContent>
@@ -628,6 +652,7 @@ interface IntegrationInfo {
  */
 function IntegrationSection() {
   const qc = useQueryClient();
+  const t = useT();
   const info = useQuery({
     queryKey: ["integration"],
     queryFn: () => apiGet<IntegrationInfo>("/admin/integration"),
@@ -636,14 +661,14 @@ function IntegrationSection() {
   const install = useMutation({
     mutationFn: () => api("/admin/integration/install", { method: "POST" }),
     onSuccess: () => {
-      toast.success("Installed. If this is the first install, restart Home Assistant once.");
+      toast.success(t("settings.installed"));
       qc.invalidateQueries({ queryKey: ["integration"] });
     },
     onError: (e) =>
       toast.error(
         e instanceof ApiError
-          ? `Install failed (${e.status}) — is the add-on updated with config access?`
-          : "Install failed — is the add-on updated with config access?",
+          ? t("settings.installFailedStatus", { status: e.status })
+          : t("settings.installFailed"),
       ),
   });
 
@@ -651,9 +676,9 @@ function IntegrationSection() {
     mutationFn: () => api<{ apiKey: string; haReloaded: boolean | null }>("/admin/integration/key", { method: "POST" }),
     onSuccess: (res) => {
       if (res.haReloaded === false) {
-        toast.warning("New API key generated, but Home Assistant didn't reload it — restart HA once so clock buttons keep working.");
+        toast.warning(t("settings.keyNoReload"));
       } else {
-        toast.success("New API key generated; installed package updated.");
+        toast.success(t("settings.keyRotated"));
       }
       qc.invalidateQueries({ queryKey: ["integration"] });
       qc.invalidateQueries({ queryKey: ["settings"] });
@@ -666,28 +691,24 @@ function IntegrationSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Home Assistant integration</CardTitle>
-        <CardDescription>
-          Installs the <span className="font-mono">timeclock-card</span> dashboard card and
-          per-employee clock in/out scripts (used by Android companion-app widgets).
-        </CardDescription>
+        <CardTitle>{t("settings.haTitle")}</CardTitle>
+        <CardDescription>{t("settings.haHint")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {info.isLoading && <Skeleton className="h-6 w-full" />}
         {s && (
           <div className="flex flex-wrap gap-2">
-            <StatusBadge ok={s.haConfigMounted} label="Config access" />
-            <StatusBadge ok={s.packageInstalled} label="Package" />
-            <StatusBadge ok={s.cardInstalled} label="Card" />
-            <StatusBadge ok={s.packagesIncludeConfigured} label="Packages include" />
+            <CheckBadge ok={s.haConfigMounted} label={t("settings.checkConfig")} />
+            <CheckBadge ok={s.packageInstalled} label={t("settings.checkPackage")} />
+            <CheckBadge ok={s.cardInstalled} label={t("settings.checkCard")} />
+            <CheckBadge ok={s.packagesIncludeConfigured} label={t("settings.checkInclude")} />
           </div>
         )}
         {s?.packagesIncludeConfigured === false && (
           <div className="flex items-start gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             <p>
-              Add this line under <span className="font-mono">homeassistant:</span> in
-              configuration.yaml, then restart HA once:{" "}
+              {t("settings.includeHint", { key: "homeassistant:" })}{" "}
               <span className="font-mono">packages: !include_dir_named packages</span>
             </p>
           </div>
@@ -695,7 +716,7 @@ function IntegrationSection() {
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => install.mutate()} disabled={install.isPending}>
             <Download />
-            {s?.packageInstalled ? "Reinstall / refresh" : "Install into Home Assistant"}
+            {s?.packageInstalled ? t("settings.reinstall") : t("settings.install")}
           </Button>
           <Button
             variant="secondary"
@@ -703,28 +724,16 @@ function IntegrationSection() {
             disabled={rotate.isPending}
           >
             <RefreshCw />
-            {info.data?.apiKey ? "Rotate API key" : "Generate API key"}
+            {info.data?.apiKey ? t("settings.rotateKey") : t("settings.generateKey")}
           </Button>
         </div>
         <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer py-2 font-medium">
-            Setup checklist &amp; manual YAML
-          </summary>
+          <summary className="cursor-pointer py-2 font-medium">{t("settings.checklist")}</summary>
           <ol className="mt-2 list-decimal space-y-1 pl-5">
-            <li>Click Install (writes packages/timeclock.yaml + www/timeclock-card.js).</li>
-            <li>
-              First time only: ensure the packages include line above exists, add the dashboard
-              resource <span className="font-mono">/local/timeclock-card.js</span> (JavaScript
-              module), and restart HA.
-            </li>
-            <li>
-              Add the card: type <span className="font-mono">custom:timeclock-card</span> in a
-              manual card.
-            </li>
-            <li>
-              Android widget: Companion app → Settings → Widgets → add a Template/Actions
-              widget that runs <span className="font-mono">script.timeclock_&lt;name&gt;_toggle</span>.
-            </li>
+            <li>{t("settings.step1")}</li>
+            <li>{t("settings.step2", { resource: "/local/timeclock-card.js" })}</li>
+            <li>{t("settings.step3", { type: "custom:timeclock-card" })}</li>
+            <li>{t("settings.step4", { script: "script.timeclock_<name>_toggle" })}</li>
           </ol>
           {info.data?.packageYaml && (
             <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-background p-3 font-mono">
@@ -744,23 +753,19 @@ function IntegrationSection() {
  * notify service + presence entity are edited on the Employees page.
  */
 function PresenceSection({ doc, set, issues }: SectionProps) {
+  const t = useT();
   const p = doc.presence;
   const at = (k: string) => issuesAt(issues, `presence.${k}`);
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Presence reminders</CardTitle>
-        <CardDescription>
-          Nudge staff to clock in when their phone joins the work network and to clock out when
-          it leaves. Notify-only — this never punches automatically. Each person&apos;s notify
-          service and presence entity are set on the{" "}
-          <span className="font-medium text-foreground">Employees</span> page.
-        </CardDescription>
+        <CardTitle>{t("settings.presenceTitle")}</CardTitle>
+        <CardDescription>{t("settings.presenceHint")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <ToggleRow
           id="presence-enabled"
-          label="Notify staff to clock in/out based on presence"
+          label={t("settings.presenceEnabled")}
           checked={p.enabled}
           onCheckedChange={(v) => set("presence.enabled", v)}
         />
@@ -768,13 +773,13 @@ function PresenceSection({ doc, set, issues }: SectionProps) {
         <div className="flex flex-col gap-4 border-t border-border pt-4">
           <ToggleRow
             id="presence-arrive"
-            label="Remind to clock in on arrival"
+            label={t("settings.remindArrive")}
             checked={p.notifyOnArrive}
             onCheckedChange={(v) => set("presence.notifyOnArrive", v)}
           />
           <ToggleRow
             id="presence-depart"
-            label="Remind to clock out on departure"
+            label={t("settings.remindDepart")}
             checked={p.notifyOnDepart}
             onCheckedChange={(v) => set("presence.notifyOnDepart", v)}
           />
@@ -783,9 +788,9 @@ function PresenceSection({ doc, set, issues }: SectionProps) {
         <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
           <Field
             id="presence-arrive-grace"
-            label="Arrival grace"
+            label={t("settings.arriveGrace")}
             issues={at("arriveGraceSec")}
-            hint="How long they must stay on-network before we send a clock-in reminder."
+            hint={t("settings.arriveGraceHint")}
           >
             <NumField
               id="presence-arrive-grace"
@@ -797,9 +802,9 @@ function PresenceSection({ doc, set, issues }: SectionProps) {
           </Field>
           <Field
             id="presence-depart-grace"
-            label="Departure grace"
+            label={t("settings.departGrace")}
             issues={at("departGraceSec")}
-            hint="How long they must be gone before we send a clock-out reminder."
+            hint={t("settings.departGraceHint")}
           >
             <NumField
               id="presence-depart-grace"
@@ -814,14 +819,14 @@ function PresenceSection({ doc, set, issues }: SectionProps) {
         <div className="border-t border-border pt-4">
           <Field
             id="presence-ssid"
-            label="Wi-Fi SSID"
+            label={t("settings.ssid")}
             issues={at("ssid")}
-            hint="Only needed if you picked a Wi-Fi SSID sensor as someone's presence entity."
+            hint={t("settings.ssidHint")}
           >
             <Input
               id="presence-ssid"
               value={p.ssid}
-              placeholder="e.g. WorkWiFi"
+              placeholder={t("settings.eg", { example: "WorkWiFi" })}
               onChange={(e) => set("presence.ssid", e.target.value)}
             />
           </Field>
@@ -829,14 +834,14 @@ function PresenceSection({ doc, set, issues }: SectionProps) {
 
         <details className="border-t border-border pt-4 text-sm" open={at("pollSec").length > 0}>
           <summary className="cursor-pointer py-1 font-medium text-muted-foreground">
-            Advanced
+            {t("settings.advanced")}
           </summary>
           <div className="mt-3 sm:max-w-48">
             <Field
               id="presence-poll"
-              label="Poll interval"
+              label={t("settings.pollInterval")}
               issues={at("pollSec")}
-              hint="How often we check Home Assistant for presence (15–600s). Takes effect after the add-on restarts."
+              hint={t("settings.pollHint")}
             >
               <NumField
                 id="presence-poll"
@@ -969,7 +974,7 @@ function ToggleRow({
   );
 }
 
-function StatusBadge({ ok, label }: { ok: boolean | null; label: string }) {
+function CheckBadge({ ok, label }: { ok: boolean | null; label: string }) {
   const Icon = ok ? Check : ok === false ? X : CircleHelp;
   return (
     <Badge variant={ok ? "secondary" : ok === false ? "destructive" : "outline"}>

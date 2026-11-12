@@ -35,6 +35,7 @@ import { useLocale } from "@/lib/format";
 import { groupByWeek, weekStartDay } from "@/lib/pay-helpers";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -335,26 +336,20 @@ export default function MyHoursPage() {
           <button type="button" className="flex flex-wrap items-center gap-2 text-left" onClick={() => setSelected(day)}>
             <span className="font-medium">{loc.date(`${day}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
             {approved ? (
-              <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
+              <StatusBadge status="approved">
                 <CircleCheck className="size-3" /> {t("myHours.dayApproved")}
-              </Badge>
+              </StatusBadge>
             ) : (
               <Badge variant="secondary">{t("myHours.dayOpen")}</Badge>
             )}
             {waiting > 0 && (
-              <Badge className="border-transparent bg-amber-500/15 text-amber-300">
-                {t("myHours.changesWaiting", { n: waiting })}
-              </Badge>
+              <StatusBadge status="pending">
+                {t(waiting === 1 ? "myHours.changesWaiting.one" : "myHours.changesWaiting.other", { n: waiting })}
+              </StatusBadge>
             )}
             {corr && (
-              <Badge
-                className={`border-transparent ${
-                  corr.status === "pending"
-                    ? "bg-amber-500/15 text-amber-300"
-                    : corr.status === "approved"
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-red-500/15 text-red-300"
-                }`}
+              <StatusBadge
+                status={corr.status === "pending" ? "pending" : corr.status === "approved" ? "approved" : "declined"}
               >
                 {t(
                   corr.status === "pending"
@@ -363,7 +358,7 @@ export default function MyHoursPage() {
                       ? "myHours.correctionApproved"
                       : "myHours.correctionDeclined",
                 )}
-              </Badge>
+              </StatusBadge>
             )}
             <span className="ml-auto font-mono text-sm">{hrs(dayMin)}</span>
           </button>
@@ -382,12 +377,8 @@ export default function MyHoursPage() {
                   {t("myHours.breaks", { value: breaksLabel(e, t) })}
                   {e.job && <> · {e.job.name}</>}
                 </span>
-                {e.edited && (
-                  <Badge className="border-transparent bg-amber-500/15 font-sans text-amber-300">{t("myHours.edited")}</Badge>
-                )}
-                {e.paidAt && (
-                  <Badge className="border-transparent bg-emerald-500/15 font-sans text-emerald-300">{t("myHours.paid")}</Badge>
-                )}
+                {e.edited && <StatusBadge status="edited" className="font-sans" />}
+                {e.paidAt && <StatusBadge status="paid" className="font-sans" />}
                 {pickEntry && (
                   <Button
                     variant="secondary"
@@ -423,7 +414,7 @@ export default function MyHoursPage() {
         <Card className="border-amber-500/40">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageCircleQuestion className="size-5 text-amber-400" /> {t("myHours.disputesTitle")}
+              <MessageCircleQuestion className="size-5 text-amber-600 dark:text-amber-400" /> {t("myHours.disputesTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -507,7 +498,11 @@ export default function MyHoursPage() {
             >
               {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
               <span className="font-medium">{t("myHours.weekOf", { date: loc.date(`${week}T12:00:00`, { day: "numeric", month: "short" }) })}</span>
-              {!open && <span className="text-xs text-muted-foreground">{t("myHours.weekDays", { n: rows.length })}</span>}
+              {!open && (
+                <span className="text-xs text-muted-foreground">
+                  {t(rows.length === 1 ? "myHours.weekDays.one" : "myHours.weekDays.other", { n: rows.length })}
+                </span>
+              )}
               <span className="ml-auto font-mono">
                 {usualWeek
                   ? t("myHours.weekTotal", { worked: fmtH(t, loc, weekMin), usual: fmtH(t, loc, usualWeek) })

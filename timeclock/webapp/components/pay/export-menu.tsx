@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Download, TriangleAlert } from "lucide-react";
 
 import { apiGet } from "@/lib/api-client";
 import { useLocale } from "@/lib/format";
-import { exportFormatLabel, exportFormats, type ExportFormat, type PayrollAdapter } from "@/lib/exports";
+import { useT } from "@/lib/i18n";
+import { exportFormats, type ExportFormat, type PayrollAdapter } from "@/lib/exports";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,8 +28,25 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
  */
 export function ExportMenu({ period }: { period: { id: string; lockedAt: string | null } }) {
   const qc = useQueryClient();
+  const t = useT();
   const loc = useLocale();
   const [moreOpen, setMoreOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the menu on outside click or Escape.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMoreOpen(false);
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
   const [confirm, setConfirm] = useState<ExportFormat | null>(null);
 
   const adapters = useQuery({
@@ -47,6 +65,13 @@ export function ExportMenu({ period }: { period: { id: string; lockedAt: string 
   const list = adapters.data?.adapters ?? [];
   const { primary, others } = exportFormats(period.id, list, adapters.data?.configured);
   const href = (f: ExportFormat) => `${BASE}/api${f.path}`;
+  // Translated name for a format id (same ids as lib/exports).
+  const labelOf = (id: string | null) => {
+    if (!id) return t("export.export");
+    if (id === "timesheet.csv") return t("export.timesheetCsv");
+    if (id === "timesheet.pdf") return t("export.timesheetPdf");
+    return t("export.payrollFormat", { name: list.find((a) => a.id === id)?.label ?? id });
+  };
 
   // Downloads are plain navigations (no callback) — refresh the stamp shortly after.
   const exported = () => {
@@ -70,15 +95,15 @@ export function ExportMenu({ period }: { period: { id: string; lockedAt: string 
       <div className="flex items-center">
         <Button asChild className="rounded-r-none">
           <a href={href(primary)} onClick={onPick(primary)}>
-            <Download /> Payroll export
+            <Download /> {t("export.payroll")}
           </a>
         </Button>
-        <div className="relative">
+        <div className="relative" ref={menuRef}>
           <Button
             variant="default"
             size="icon"
             className="rounded-l-none border-l border-primary-foreground/20"
-            aria-label="More export formats"
+            aria-label={t("export.more")}
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((o) => !o)}
           >
@@ -97,7 +122,7 @@ export function ExportMenu({ period }: { period: { id: string; lockedAt: string 
                   onClick={onPick(f)}
                   className="flex items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
                 >
-                  <Download className="size-4" aria-hidden="true" /> {f.label}
+                  <Download className="size-4" aria-hidden="true" /> {labelOf(f.id)}
                 </a>
               ))}
             </div>
@@ -106,9 +131,9 @@ export function ExportMenu({ period }: { period: { id: string; lockedAt: string 
       </div>
       <span className="text-xs text-muted-foreground">
         {stamp
-          ? `Last exported ${loc.dateTime(stamp.at)}${stamp.by ? ` by ${stamp.by}` : ""} · ${exportFormatLabel(stamp.format, list)}`
+          ? `${stamp.by ? t("export.lastBy", { when: loc.dateTime(stamp.at), by: stamp.by }) : t("export.last", { when: loc.dateTime(stamp.at) })} · ${labelOf(stamp.format)}`
           : last.isSuccess
-            ? "Not exported yet"
+            ? t("export.never")
             : null}
       </span>
 
@@ -116,16 +141,15 @@ export function ExportMenu({ period }: { period: { id: string; lockedAt: string 
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <TriangleAlert className="size-5 text-amber-400" aria-hidden="true" /> Period not locked
+              <TriangleAlert className="size-5 text-amber-500 dark:text-amber-400" aria-hidden="true" /> {t("export.notLocked")}
             </DialogTitle>
             <DialogDescription>
-              Entries in this period can still change after you export. Lock the period first so payroll
-              matches what&apos;s on record, or export anyway for a preview.
+              {t("export.notLockedBody")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline">{t("common.cancel")}</Button>
             </DialogClose>
             {confirm && (
               <Button asChild variant="secondary">
@@ -136,7 +160,7 @@ export function ExportMenu({ period }: { period: { id: string; lockedAt: string 
                     exported();
                   }}
                 >
-                  <Download /> Export anyway ({confirm.label})
+                  <Download /> {t("export.anyway", { name: labelOf(confirm.id) })}
                 </a>
               </Button>
             )}

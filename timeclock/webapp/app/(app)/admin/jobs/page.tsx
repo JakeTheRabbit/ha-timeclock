@@ -8,7 +8,7 @@ import { Briefcase, Pencil, Plus } from "lucide-react";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useT } from "@/lib/i18n";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -163,9 +163,9 @@ export default function JobsAdminPage() {
                   <span className="font-mono text-xs text-muted-foreground">{j.code}</span>
                 )}
               </div>
-              <Badge variant={j.active ? "default" : "secondary"}>
+              <StatusBadge status={j.active ? "approved" : "cancelled"}>
                 {j.active ? t("jobs.active") : t("jobs.inactive")}
-              </Badge>
+              </StatusBadge>
               <Button variant="ghost" size="sm" onClick={() => setEditing(j)}>
                 <Pencil /> {t("jobs.edit")}
               </Button>

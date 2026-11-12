@@ -14,6 +14,7 @@ import { savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
 import { schedulePush } from "@/server/integrations/ha/state-push";
 import { doorAccessFlag } from "@/server/domain/antifraud/door-access";
 import { notify } from "@/server/integrations/notify";
+import { serverT } from "@/server/i18n";
 import { APP_TZ } from "@/lib/tz";
 import { todayWork } from "@/lib/clock-context";
 import { dayOf } from "@/server/domain/time/day-review";
@@ -161,9 +162,13 @@ export const clock = new Hono<AppEnv>()
     const door = await doorAccessFlag(me.accessEntities, clockIn);
     if (door) {
       flags.push(door);
+      const { t, bcp47 } = await serverT();
       void notify({
-        title: "Clock-in with no door swipe",
-        message: `${me.displayName} clocked in at ${clockIn.toLocaleTimeString("en-NZ", { timeZone: APP_TZ, hour: "2-digit", minute: "2-digit" })} with no card swipe on their door reader beforehand.`,
+        title: t("push.doorTitle"),
+        message: t("push.doorBody", {
+          name: me.displayName,
+          time: clockIn.toLocaleTimeString(bcp47, { timeZone: APP_TZ, hour: "2-digit", minute: "2-digit" }),
+        }),
       });
     }
 

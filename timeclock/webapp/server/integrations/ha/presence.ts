@@ -3,6 +3,7 @@ import { getDb } from "@/db/client";
 import { employees, timeEntries } from "@/db/schema";
 import { getSettings, type Settings } from "@/server/domain/settings";
 import { slugify } from "./summary";
+import { serverT } from "@/server/i18n";
 
 /**
  * Presence-based clock reminders, run ENTIRELY inside the add-on — no HA
@@ -157,19 +158,17 @@ async function sendPresenceNotification(
   if (domain !== "notify" || rest.length > 0 || !svc || !/^[a-z0-9_]+$/.test(svc)) {
     throw new Error(`bad notify service: ${service}`);
   }
+  const { t } = await serverT();
   const body = {
-    title: verb === "in" ? "Clock in?" : "Clock out?",
-    message:
-      verb === "in"
-        ? `You're at work, ${name}. Tap to start your shift.`
-        : `Looks like you've left, ${name}. Tap to end your shift.`,
+    title: t(verb === "in" ? "push.presenceInTitle" : "push.presenceOutTitle"),
+    message: t(verb === "in" ? "push.presenceInBody" : "push.presenceOutBody", { name }),
     data: {
       tag: `timeclock_${slug}`,
       // Consumed by the static handler automation -> rest_command.timeclock_punch.
       actions: [
         {
           action: `TIMECLOCK_${verb.toUpperCase()}__${employeeId}`,
-          title: verb === "in" ? "Clock in" : "Clock out",
+          title: t(verb === "in" ? "clock.clockIn" : "clock.clockOut"),
         },
       ],
     },

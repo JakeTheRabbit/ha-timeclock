@@ -7,6 +7,7 @@ import { HourDots, liveMinutes } from "@/components/entries/month-calendar";
 import { localDay, type EntryRow } from "@/components/entries/edit-entry-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { STATUS_TEXT } from "@/components/ui/status-badge";
 import { useLocale } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { entriesHref } from "@/lib/links";
@@ -101,7 +102,7 @@ export function CorrectionRequest({
               {oldMin != null && newMin != null && delta !== 0 ? (
                 <>
                   <s className="text-muted-foreground">{h(oldMin)}</s> ⇒ <span className="font-medium">{h(newMin)}</span>{" "}
-                  <span className={delta! > 0 ? "text-emerald-400" : "text-amber-400"}>
+                  <span className={delta! > 0 ? STATUS_TEXT.approved : STATUS_TEXT.warning}>
                     ({delta! > 0 ? "+" : "−"}
                     {h(Math.abs(delta!))})
                   </span>
@@ -127,10 +128,10 @@ export function CorrectionRequest({
       />
       <div className="grid grid-cols-2 gap-2">
         <Button disabled={busy} onClick={() => onDecide("approve", note.trim() || undefined)}>
-          <Check /> Approve
+          <Check /> {t("review.approve")}
         </Button>
         <Button variant="destructive" disabled={busy} onClick={() => onDecide("reject", note.trim() || undefined)}>
-          <X /> Decline
+          <X /> {t("leaveApprove.decline")}
         </Button>
       </div>
     </div>

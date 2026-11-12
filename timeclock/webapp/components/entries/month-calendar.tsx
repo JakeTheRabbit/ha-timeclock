@@ -91,6 +91,7 @@ export function hourBuckets(day: string, entries: EntryRow[]) {
  * as the share of the hour spent that way.
  */
 export function HourDots({ day, entries, compact }: { day: string; entries: EntryRow[]; compact?: boolean }) {
+  const t = useT();
   const { work, brk } = hourBuckets(day, entries);
   return (
     <div className={cn("flex items-center", compact ? "gap-px" : "gap-1")} aria-hidden>
@@ -101,7 +102,7 @@ export function HourDots({ day, entries, compact }: { day: string; entries: Entr
         return (
           <span
             key={h}
-            title={`${String(h).padStart(2, "0")}:00 · ${Math.round(w)}m work${b ? ` · ${Math.round(b)}m break` : ""}`}
+            title={`${String(h).padStart(2, "0")}:00 · ${t("calendar.minWork", { n: Math.round(w) })}${b ? ` · ${t("calendar.minBreak", { n: Math.round(b) })}` : ""}`}
             className={cn(
               "shrink-0",
               compact ? "h-1 flex-1 first:rounded-l last:rounded-r" : "size-2.5 rounded-full sm:size-3",

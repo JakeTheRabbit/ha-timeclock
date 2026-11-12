@@ -8,6 +8,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { apiGet } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { entriesHref } from "@/lib/links";
 import { tzOffset } from "@/lib/tz";
 import {
@@ -24,6 +25,7 @@ import {
   weekStartOf,
   workerStats,
   type Slice,
+  type SliceActivity,
   type WorkerStats,
 } from "@/lib/insights";
 import { DailyHoursChart, Legend, OnSiteHeatmap, StatTile, seriesVar } from "@/components/insights/charts";
@@ -53,13 +55,16 @@ const prevMonth = (day: string) => {
 };
 
 const PRESETS = {
-  thisWeek: "This week",
-  lastWeek: "Last week",
-  last30: "Last 30 days",
-  thisMonth: "This month",
-  lastMonth: "Last month",
-  last90: "Last 90 days",
-} as const;
+  thisWeek: "insights.preset.thisWeek",
+  lastWeek: "insights.preset.lastWeek",
+  last30: "insights.preset.last30",
+  thisMonth: "insights.preset.thisMonth",
+  lastMonth: "insights.preset.lastMonth",
+  last90: "insights.preset.last90",
+} as const satisfies Record<string, MessageKey>;
+
+type T = ReturnType<typeof useT>;
+const plural = (t: T, key: string, n: number) => t(`${key}.${n === 1 ? "one" : "other"}` as MessageKey, { n });
 type Preset = keyof typeof PRESETS;
 
 function presetRange(p: Preset, weekStart: 0 | 1): { from: string; to: string } {
@@ -97,6 +102,7 @@ type Tab = "overview" | "calendar" | "timeline" | "activity";
 
 /** Manager dashboard: stats, charts, calendar, timeline and activity. */
 export default function InsightsPage() {
+  const t = useT();
   const { session, isLoading } = useSession();
   const loc = useLocale();
   const router = useRouter();
@@ -132,8 +138,8 @@ export default function InsightsPage() {
       <div className="mx-auto w-full max-w-5xl p-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-destructive">Access denied</CardTitle>
-            <CardDescription>Lead role or above required.</CardDescription>
+            <CardTitle className="text-destructive">{t("pay.accessDenied")}</CardTitle>
+            <CardDescription>{t("payPeriods.leadRequired")}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -158,27 +164,27 @@ export default function InsightsPage() {
             setCalOpen(null);
           }}className="w-full sm:w-auto">
           <TabsList className="grid w-full grid-cols-4 sm:inline-flex sm:w-fit">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="calendar">Calendar</TabsTrigger>
-            <TabsTrigger value="timeline">Timeline</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="overview">{t("insights.tab.overview")}</TabsTrigger>
+            <TabsTrigger value="calendar">{t("insights.tab.calendar")}</TabsTrigger>
+            <TabsTrigger value="timeline">{t("insights.tab.timeline")}</TabsTrigger>
+            <TabsTrigger value="activity">{t("insights.tab.activity")}</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           {personId && (
-            <Button variant="secondary" size="sm" onClick={() => setPersonId(null)} aria-label="Show everyone">
-              Showing: {person?.displayName ?? "1 person"} <X />
+            <Button variant="secondary" size="sm" onClick={() => setPersonId(null)} aria-label={t("insights.showEveryone")}>
+              {t("insights.showing", { name: person?.displayName ?? t("insights.people.one", { n: 1 }) })} <X />
             </Button>
           )}
           {(tab === "overview" || tab === "activity") && (
             <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-              <SelectTrigger aria-label="Date range" className="w-40">
+              <SelectTrigger aria-label={t("pay.dateRange")} className="w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {Object.entries(PRESETS).map(([k, label]) => (
                   <SelectItem key={k} value={k}>
-                    {label}
+                    {t(label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -194,7 +200,7 @@ export default function InsightsPage() {
           )}
           {tab === "timeline" && (
             <Stepper
-              label={`Week of ${loc.date(`${week}T12:00:00Z`, { timeZone: "UTC", day: "numeric", month: "short" })}`}
+              label={t("myHours.weekOf", { date: loc.date(`${week}T12:00:00Z`, { timeZone: "UTC", day: "numeric", month: "short" }) })}
               onPrev={() => setWeekAnchor(addDays(weekAnchor, -7))}
               onNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
               onToday={() => setWeekAnchor(dayKey(new Date()))}
@@ -235,24 +241,26 @@ export default function InsightsPage() {
 }
 
 function Stepper({ label, onPrev, onNext, onToday }: { label: string; onPrev: () => void; onNext: () => void; onToday: () => void }) {
+  const t = useT();
   return (
     <div className="flex w-full items-center gap-1 sm:w-auto">
-      <Button variant="ghost" size="icon" aria-label="Previous" onClick={onPrev}>
+      <Button variant="ghost" size="icon" aria-label={t("insights.previous")} onClick={onPrev}>
         <ChevronLeft />
       </Button>
       <span className="min-w-0 flex-1 truncate text-center text-sm font-medium sm:min-w-36 sm:flex-none">{label}</span>
-      <Button variant="ghost" size="icon" aria-label="Next" onClick={onNext}>
+      <Button variant="ghost" size="icon" aria-label={t("insights.next")} onClick={onNext}>
         <ChevronRight />
       </Button>
       <Button variant="secondary" size="sm" onClick={onToday}>
-        Today
+        {t("roster.today")}
       </Button>
     </div>
   );
 }
 
 function Loaded({ q, children }: { q: ReturnType<typeof useSlice>; children: (s: Slice) => React.ReactNode }) {
-  if (q.isError) return <p className="text-sm text-destructive">Couldn&apos;t load data.</p>;
+  const t = useT();
+  if (q.isError) return <p className="text-sm text-destructive">{t("insights.loadFailed")}</p>;
   if (!q.data) return <Skeleton className="h-64 w-full rounded-xl" />;
   return <div className={q.isFetching && q.isPlaceholderData ? "opacity-60 transition-opacity" : ""}>{children(q.data)}</div>;
 }
@@ -272,6 +280,7 @@ function Overview({
   onPerson: (id: string) => void;
   onDay: (day: string) => void;
 }) {
+  const tr = useT();
   const loc = useLocale();
   const router = useRouter();
   const [view, setView] = useState<"chart" | "table">("chart");
@@ -300,39 +309,39 @@ function Overview({
             <div className="flex flex-col gap-1">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatTile
-                  label="Hours worked"
+                  label={tr("insights.hoursWorked")}
                   value={hours(t.minutes)}
-                  hint={`${t.shifts} shifts · ${t.people} people`}
+                  hint={`${plural(tr, "insights.shifts", t.shifts)} · ${plural(tr, "insights.people", t.people)}`}
                   change={pt && delta(t.minutes, pt.minutes)}
                   prev={pt ? hours(pt.minutes) : undefined}
                 />
                 <StatTile
-                  label="Average shift"
+                  label={tr("insights.avgShift")}
                   value={hours(t.avgShiftMin)}
-                  hint={onShift ? `${onShift} on shift now` : undefined}
+                  hint={onShift ? tr("insights.onShiftNow", { n: onShift }) : undefined}
                   change={pt && delta(t.avgShiftMin, pt.avgShiftMin)}
                   prev={pt ? hours(pt.avgShiftMin) : undefined}
                 />
                 <StatTile
-                  label="No door swipe"
+                  label={tr("pay.noDoorSwipe")}
                   value={String(t.noDoorSwipe)}
-                  hint={`${t.edits} edited · ${t.late} late`}
+                  hint={tr("insights.editedLate", { edits: t.edits, late: t.late })}
                   tone={t.noDoorSwipe ? "warn" : undefined}
                   change={pt && delta(t.noDoorSwipe, pt.noDoorSwipe)}
-                  prev={pt ? `${pt.noDoorSwipe} (${pt.edits} edited · ${pt.late} late)` : undefined}
+                  prev={pt ? `${pt.noDoorSwipe} (${tr("insights.editedLate", { edits: pt.edits, late: pt.late })})` : undefined}
                   upIsBad
                 />
                 {s.withPay ? (
                   <StatTile
-                    label="Labour cost"
+                    label={tr("insights.labourCost")}
                     value={money(t.costCents)}
-                    hint="pay-tracked staff with a rate"
+                    hint={tr("insights.labourCostHint")}
                     change={pt && delta(t.costCents, pt.costCents)}
                     prev={pt ? money(pt.costCents) : undefined}
                   />
                 ) : (
                   <StatTile
-                    label="Days covered"
+                    label={tr("insights.daysCovered")}
                     value={String(covered(s))}
                     change={ps && delta(covered(s), covered(ps))}
                     prev={ps ? String(covered(ps)) : undefined}
@@ -340,17 +349,19 @@ function Overview({
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                ▲/▼ vs the previous {days.length} days (
-                {loc.date(`${addDays(range.from, -days.length)}T12:00:00Z`, { timeZone: "UTC", day: "numeric", month: "short" })}–
-                {loc.date(`${addDays(range.from, -1)}T12:00:00Z`, { timeZone: "UTC", day: "numeric", month: "short" })})
+                {tr("insights.vsPrevious", {
+                  n: days.length,
+                  from: loc.date(`${addDays(range.from, -days.length)}T12:00:00Z`, { timeZone: "UTC", day: "numeric", month: "short" }),
+                  to: loc.date(`${addDays(range.from, -1)}T12:00:00Z`, { timeZone: "UTC", day: "numeric", month: "short" }),
+                })}
               </p>
             </div>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
-                <CardTitle className="text-base">Hours per day</CardTitle>
+                <CardTitle className="text-base">{tr("insights.hoursPerDay")}</CardTitle>
                 <Button variant="ghost" size="sm" onClick={() => setView(view === "chart" ? "table" : "chart")}>
-                  {view === "chart" ? "Table" : "Chart"}
+                  {view === "chart" ? tr("insights.table") : tr("insights.chart")}
                 </Button>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
@@ -394,13 +405,13 @@ function Overview({
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Day</TableHead>
+                            <TableHead>{tr("myHours.colDay")}</TableHead>
                             {people.map((p) => (
                               <TableHead key={p.id} className="text-right">
                                 {p.displayName}
                               </TableHead>
                             ))}
-                            <TableHead className="text-right">Total</TableHead>
+                            <TableHead className="text-right">{tr("insights.total")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -435,8 +446,8 @@ function Overview({
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">When people are on site</CardTitle>
-                <CardDescription>Person-hours by weekday and hour over the range</CardDescription>
+                <CardTitle className="text-base">{tr("insights.onSiteTitle")}</CardTitle>
+                <CardDescription>{tr("insights.onSiteHint")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <OnSiteHeatmap grid={heatmap(s)} />
@@ -454,16 +465,17 @@ function Overview({
 type SortKey = "name" | "minutes" | "shifts" | "avgShift" | "avgStart" | "flags" | "cost";
 
 function Flags({ s }: { s: WorkerStats }) {
+  const t = useT();
   return (
     <span className="inline-flex flex-wrap justify-end gap-x-2 text-xs">
       {s.noDoorSwipe > 0 && (
         <span className="inline-flex items-center gap-1 text-[var(--warning-color)]">
           <AlertTriangle className="size-3" />
-          {s.noDoorSwipe} no swipe
+          {t("insights.noSwipeN", { n: s.noDoorSwipe })}
         </span>
       )}
-      {s.late > 0 && <span className="text-muted-foreground">{s.late}/{s.rostered} late</span>}
-      {s.edits > 0 && <span className="text-muted-foreground">{s.edits} edited</span>}
+      {s.late > 0 && <span className="text-muted-foreground">{t("insights.lateOf", { late: s.late, rostered: s.rostered })}</span>}
+      {s.edits > 0 && <span className="text-muted-foreground">{t("insights.editedN", { n: s.edits })}</span>}
       {s.noDoorSwipe + s.late + s.edits === 0 && <span className="text-muted-foreground">—</span>}
     </span>
   );
@@ -482,6 +494,7 @@ function WorkersTable({
   personId: string | null;
   onPerson: (id: string) => void;
 }) {
+  const t = useT();
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "minutes", desc: true });
   const val = (s: WorkerStats): number | string => {
     switch (sort.key) {
@@ -523,20 +536,20 @@ function WorkersTable({
     <span className="flex items-center gap-2">
       <span className="size-2.5 shrink-0 rounded-sm" style={{ background: seriesVar(s.employee.slot) }} />
       <span className="truncate font-medium">{s.employee.displayName}</span>
-      {s.onShiftNow && <span className="shrink-0 text-xs text-[var(--success-color)]">● on shift</span>}
+      {s.onShiftNow && <span className="shrink-0 text-xs text-[var(--success-color)]">● {t("insights.onShift")}</span>}
     </span>
   );
   const pickLabel = (s: WorkerStats) =>
-    personId === s.employee.id ? `Show everyone` : `Show only ${s.employee.displayName}`;
+    personId === s.employee.id ? t("insights.showEveryone") : t("insights.showOnly", { name: s.employee.displayName });
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Workers</CardTitle>
-        <CardDescription>Tap a person to filter the whole page to them</CardDescription>
+        <CardTitle className="text-base">{t("insights.workers")}</CardTitle>
+        <CardDescription>{t("insights.workersHint")}</CardDescription>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nobody clocked in during this range.</p>
+          <p className="text-sm text-muted-foreground">{t("insights.nobodyInRange")}</p>
         ) : (
           <>
             {/* phones: one card per person */}
@@ -555,12 +568,12 @@ function WorkersTable({
                     </span>
                     <span className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                       <span>
-                        {s.shifts} shifts / {s.daysWorked}d
+                        {plural(t, "insights.shifts", s.shifts)} / {t("payPeriods.daysShort", { n: s.daysWorked })}
                       </span>
-                      <span>avg {hours(s.avgShiftMin)}</span>
-                      <span>starts {hhmm(s.avgStartMin)}</span>
+                      <span>{t("insights.avgN", { value: hours(s.avgShiftMin) })}</span>
+                      <span>{t("insights.startsN", { value: hhmm(s.avgStartMin) })}</span>
                       <span>
-                        breaks {s.paidBreakMin}m / {s.unpaidBreakMin}m
+                        {t("insights.breaksN", { paid: s.paidBreakMin, unpaid: s.unpaidBreakMin })}
                       </span>
                       {withPay && <span>{money(s.costCents)}</span>}
                     </span>
@@ -575,14 +588,14 @@ function WorkersTable({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <H k="name">Person</H>
-                    <H k="minutes" right>Hours</H>
-                    <H k="shifts" right>Shifts</H>
-                    <H k="avgShift" right>Avg shift</H>
-                    <H k="avgStart" right>Avg start</H>
-                    <TableHead className="text-right">Breaks (paid / unpaid)</TableHead>
-                    <H k="flags" right>Flags</H>
-                    {withPay && <H k="cost" right>Cost</H>}
+                    <H k="name">{t("insights.col.person")}</H>
+                    <H k="minutes" right>{t("insights.col.hours")}</H>
+                    <H k="shifts" right>{t("insights.col.shifts")}</H>
+                    <H k="avgShift" right>{t("insights.col.avgShift")}</H>
+                    <H k="avgStart" right>{t("insights.col.avgStart")}</H>
+                    <TableHead className="text-right">{t("insights.col.breaks")}</TableHead>
+                    <H k="flags" right>{t("payPeriods.flagsCol")}</H>
+                    {withPay && <H k="cost" right>{t("insights.col.cost")}</H>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -596,7 +609,7 @@ function WorkersTable({
                       <TableCell className="text-right font-mono tabular-nums">{hours(s.minutes)}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {s.shifts}
-                        <span className="text-muted-foreground"> / {s.daysWorked}d</span>
+                        <span className="text-muted-foreground"> / {t("payPeriods.daysShort", { n: s.daysWorked })}</span>
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{hours(s.avgShiftMin)}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">{hhmm(s.avgStartMin)}</TableCell>
@@ -619,9 +632,45 @@ function WorkersTable({
   );
 }
 
+const ACT_KEYS: Record<string, MessageKey> = {
+  clock_in: "insights.act.clockIn",
+  clock_out: "insights.act.clockOut",
+  break_start: "insights.act.breakStart",
+  break_end: "insights.act.breakEnd",
+  auto_clockout: "insights.act.autoClockout",
+  auto_deduct: "insights.act.autoDeduct",
+  self_edit: "insights.act.selfEdit",
+  self_edit_break: "insights.act.editBreak",
+  self_edit_break_add: "insights.act.addBreak",
+  manager_edit: "insights.act.managerEdit",
+  manager_edit_break: "insights.act.editBreak",
+  manager_edit_break_add: "insights.act.addBreak",
+  correction_approved: "insights.act.correctionApproved",
+  request: "insights.act.request",
+  approve: "insights.act.approve",
+  reject: "insights.act.reject",
+  void: "insights.act.void",
+  pin_set: "insights.act.pinSet",
+  lock: "insights.act.lock",
+  unlock: "insights.act.unlock",
+};
+
+/** Translated describeActivity(); unknown actions fall back to it. */
+function activityText(a: SliceActivity, t: T): string {
+  const who = a.subject && a.subject !== a.actor ? ` (${a.subject})` : "";
+  const bonus = a.entityType === "bonus";
+  let text: string | null = ACT_KEYS[a.action] ? t(ACT_KEYS[a.action]) : null;
+  if (a.action === "mark_paid") text = t(bonus ? "insights.act.bonusPaid" : "insights.act.timePaid");
+  if (a.action === "mark_unpaid") text = t(bonus ? "insights.act.bonusUnpaid" : "insights.act.timeUnpaid");
+  if (a.action === "create") text = bonus ? t("insights.act.bonusAdded") : t("insights.act.created", { entity: a.entityType });
+  if (a.action === "update") text = t("insights.act.updated", { entity: a.entityType });
+  return text == null ? describeActivity(a) : `${text}${who}`;
+}
+
 function Activity({ slice }: { slice: Slice }) {
+  const t = useT();
   const loc = useLocale();
-  if (slice.activity.length === 0) return <p className="text-sm text-muted-foreground">No activity in this range.</p>;
+  if (slice.activity.length === 0) return <p className="text-sm text-muted-foreground">{t("insights.noActivity")}</p>;
   return (
     <Card>
       <CardContent>
@@ -632,7 +681,7 @@ function Activity({ slice }: { slice: Slice }) {
                 {loc.dateTime(a.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
               </span>
               <span className="text-sm">
-                <span className="font-medium">{a.actor}</span> {describeActivity(a)}
+                <span className="font-medium">{a.actor}</span> {activityText(a, t)}
                 {a.reason && <span className="text-muted-foreground"> — “{a.reason}”</span>}
               </span>
             </li>

@@ -18,15 +18,16 @@ import {
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
 import { HourDots, liveMinutes, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const FLAG_LABELS: Record<string, string> = {
-  no_door_access: "No door swipe",
-  offline_queued: "Offline punch",
+const FLAG_LABELS: Record<string, MessageKey> = {
+  no_door_access: "entries.flag.no_door_access",
+  offline_queued: "entries.flag.offline_queued",
 };
 
 const hrs = (min: number | null) => (min == null ? "—" : (min / 60).toFixed(2) + "h");
@@ -36,6 +37,7 @@ export default function ManagerEntriesPage() {
   const qc = useQueryClient();
   const { session, isLoading } = useSession();
   const loc = useLocale();
+  const t = useT();
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [month, setMonth] = useState(() => monthStart(new Date()));
   const [selected, setSelected] = useState<string | null>(localDay());
@@ -148,8 +150,8 @@ export default function ManagerEntriesPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-destructive">Access denied</CardTitle>
-            <CardDescription>Lead role or above required.</CardDescription>
+            <CardTitle className="text-destructive">{t("mgr.accessDenied")}</CardTitle>
+            <CardDescription>{t("mgr.leadRequired")}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -166,16 +168,16 @@ export default function ManagerEntriesPage() {
           <button type="button" className="flex flex-wrap items-center gap-2 text-left" onClick={() => setSelected(day)}>
             <span className="font-medium">{loc.date(`${day}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
             {approved && (
-              <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">
-                <CircleCheck className="size-3" /> Day approved
-              </Badge>
+              <StatusBadge status="approved">
+                <CircleCheck className="size-3" /> {t("entries.dayApproved")}
+              </StatusBadge>
             )}
-            {es.some((e) => e.edited) && <Badge className="border-transparent bg-amber-500/15 text-amber-300">Edited</Badge>}
-            {es.some((e) => e.paidAt) && <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Paid</Badge>}
+            {es.some((e) => e.edited) && <StatusBadge status="edited" />}
+            {es.some((e) => e.paidAt) && <StatusBadge status="paid" />}
             {flags.map((f) => (
-              <Badge key={f} className="border-transparent bg-destructive/15 text-destructive">
-                {FLAG_LABELS[f] ?? f}
-              </Badge>
+              <StatusBadge key={f} status="flag">
+                {FLAG_LABELS[f] ? t(FLAG_LABELS[f]) : f}
+              </StatusBadge>
             ))}
             <span className="ml-auto font-mono text-sm">{hrs(es.reduce((a, e) => a + liveMinutes(e), 0))}</span>
           </button>
@@ -183,14 +185,15 @@ export default function ManagerEntriesPage() {
           <div className="flex flex-col gap-0.5 font-mono text-sm text-muted-foreground">
             {es.map((e) => (
               <span key={e.id}>
-                {loc.time(e.clockIn)} → {e.clockOut ? loc.time(e.clockOut) : "still clocked in"}
-                {e.breaks.length > 0 && ` · ${e.breaks.length} break${e.breaks.length > 1 ? "s" : ""}`}
+                {loc.time(e.clockIn)} → {e.clockOut ? loc.time(e.clockOut) : t("entries.stillIn")}
+                {e.breaks.length > 0 &&
+                  ` · ${t(e.breaks.length === 1 ? "review.breaks.one" : "review.breaks.other", { n: e.breaks.length })}`}
                 <span className="ml-2">{hrs(liveMinutes(e))}</span>
               </span>
             ))}
           </div>
           <Button variant="secondary" size="sm" className="self-start" onClick={() => setEditing({ day, focusId: es[0]?.id })}>
-            <Pencil /> Edit day
+            <Pencil /> {t("entries.editDay")}
           </Button>
         </CardContent>
       </Card>
@@ -200,8 +203,8 @@ export default function ManagerEntriesPage() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
       <Select value={employeeId ?? undefined} onValueChange={setEmployeeId}>
-        <SelectTrigger aria-label="Select employee">
-          <SelectValue placeholder="Select an employee…" />
+        <SelectTrigger aria-label={t("entries.selectEmployee")}>
+          <SelectValue placeholder={t("entries.selectEmployeePlaceholder")} />
         </SelectTrigger>
         <SelectContent>
           {people.data?.employees
@@ -234,9 +237,9 @@ export default function ManagerEntriesPage() {
               <Card className="border-primary/60">
                 <CardContent className="flex flex-wrap items-center gap-3">
                   <span className="font-medium">{loc.date(`${selected}T12:00:00`, { weekday: "short", day: "numeric", month: "short" })}</span>
-                  <span className="text-sm text-muted-foreground">No time recorded.</span>
+                  <span className="text-sm text-muted-foreground">{t("entries.noTime")}</span>
                   <Button size="sm" className="ml-auto" onClick={() => setEditing({ day: selected, addNew: true })}>
-                    <Plus /> Add time
+                    <Plus /> {t("myHours.newTitle")}
                   </Button>
                 </CardContent>
               </Card>
@@ -252,7 +255,7 @@ export default function ManagerEntriesPage() {
               setEditing({ day, addNew: true });
             }}
           >
-            <Plus /> Add missed time
+            <Plus /> {t("myHours.addShift")}
           </Button>
 
           {days.filter((d) => d.day !== selected).map((d) => dayCard(d))}
