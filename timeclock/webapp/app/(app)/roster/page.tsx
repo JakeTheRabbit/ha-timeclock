@@ -8,9 +8,14 @@ import { toast } from "sonner";
 import { apiGet, apiPost } from "@/lib/api-client";
 import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
+import { fmtH } from "@/hooks/use-clock-context";
+import { nextShift } from "@/lib/clock-context";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
+import { APP_TZ } from "@/lib/tz";
 import { cn } from "@/lib/utils";
+import { liveMinutes, shiftTime, weekDays } from "@/components/entries/month-calendar";
+import { localDay, type EntryRow } from "@/components/entries/edit-entry-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +46,7 @@ interface Shift {
   shiftDate: string;
   startMin: number;
   endMin: number;
+  jobId: string | null;
   note: string | null;
 }
 interface Compare {
@@ -57,8 +63,7 @@ interface Compare {
 }
 interface Emp { id: string; displayName: string }
 
-const fmtMin = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
-const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
+const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: APP_TZ });
 
 type TFn = (key: MessageKey, vars?: TVars) => string;
 
@@ -89,28 +94,47 @@ export default function RosterPage() {
   const { session, isLoading } = useSession();
   const loc = useLocale();
   const t = useT();
+  const fmtMin = (min: number) => shiftTime(loc, min);
+  const fmtDay = (day: string) => loc.date(`${day}T12:00:00`);
   const isLead = session && ["lead", "manager", "admin"].includes(session.employee.role);
-  const [date, setDate] = useState(todayISO());
+  const today = todayISO();
+  const [date, setDate] = useState(today);
   const [form, setForm] = useState({ employeeId: "", start: "08:00", end: "16:30" });
   const [cancelTarget, setCancelTarget] = useState<Shift | null>(null);
 
-  const week = useMemo(() => {
-    const from = new Date(date + "T00:00:00");
-    const to = new Date(from.getTime() + 6 * 86_400_000);
-    // Local calendar date — toISOString() is UTC and lands a day early in NZ.
-    const d = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-${String(to.getDate()).padStart(2, "0")}`;
-    return { from: date, to: d };
-  }, [date]);
+  // The site week (weekStart setting) containing the picked date.
+  const days = useMemo(() => weekDays(date, loc.weekStart), [date, loc.weekStart]);
+  const week = { from: days[0], to: days[6] };
 
-  const shiftWeek = (days: number) => {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + days);
-    setDate(d.toLocaleDateString("en-CA"));
+  const shiftWeek = (n: number) => {
+    const d = new Date(date + "T12:00:00");
+    d.setDate(d.getDate() + n);
+    setDate(localDay(d));
   };
 
   const mine = useQuery({
     queryKey: ["roster-mine", week.from],
     queryFn: () => apiGet<{ shifts: Shift[] }>(`/roster/mine?from=${week.from}&to=${week.to}`),
+    enabled: !!session && !isLead,
+  });
+  // Worked so far this week, and the next shift (may be past this week).
+  const worked = useQuery({
+    queryKey: ["roster-worked", week.from],
+    queryFn: () => {
+      const from = new Date(`${week.from}T00:00:00`);
+      const to = new Date(`${week.to}T00:00:00`);
+      to.setDate(to.getDate() + 1);
+      return apiGet<{ entries: EntryRow[] }>(`/entries/mine?from=${from.toISOString()}&to=${to.toISOString()}`);
+    },
+    enabled: !!session && !isLead,
+  });
+  const upcoming = useQuery({
+    queryKey: ["roster-upcoming", today],
+    queryFn: () => {
+      const h = new Date(`${today}T12:00:00`);
+      h.setDate(h.getDate() + 14);
+      return apiGet<{ shifts: Shift[] }>(`/roster/mine?from=${today}&to=${localDay(h)}`);
+    },
     enabled: !!session && !isLead,
   });
   const all = useQuery({
@@ -184,30 +208,55 @@ export default function RosterPage() {
     );
 
   const shifts = (isLead ? all.data?.shifts : mine.data?.shifts) ?? [];
+  const range = (s: { startMin: number; endMin: number }) => `${fmtMin(s.startMin)}–${fmtMin(s.endMin)}`;
+
+  // Staff header: next shift + rostered vs worked this week.
+  const next = nextShift(upcoming.data?.shifts ?? []);
+  const nextWhen = (() => {
+    if (!next) return null;
+    if (next.current) return t("roster.onNow", { time: fmtMin(next.shift.endMin) });
+    const ahead = (+new Date(`${next.shift.shiftDate}T12:00:00`) - +new Date(`${today}T12:00:00`)) / 86400_000;
+    const label =
+      next.shift.shiftDate === today
+        ? t("roster.today")
+        : ahead < 7
+          ? loc.weekday(next.start.getDay())
+          : loc.date(`${next.shift.shiftDate}T12:00:00`);
+    return `${label} ${range(next.shift)}`;
+  })();
+  const rosteredMin = shifts.reduce((a, s) => a + Math.max(0, s.endMin - s.startMin), 0);
+  const workedMin = (worked.data?.entries ?? []).reduce((a, e) => a + liveMinutes(e), 0);
 
   return (
     <Container>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="icon" onClick={() => shiftWeek(-7)} aria-label={t("roster.previousWeek")}>
           <ChevronLeft />
         </Button>
         <Input
           type="date"
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
           className="w-auto"
           aria-label={t("roster.weekStartingDate")}
         />
         <Button variant="ghost" size="icon" onClick={() => shiftWeek(7)} aria-label={t("roster.nextWeek")}>
           <ChevronRight />
         </Button>
-        <span className="ml-auto text-sm text-muted-foreground">{t("roster.weekOf", { date: week.from })}</span>
+        {!days.includes(today) && (
+          <Button variant="outline" size="sm" onClick={() => setDate(today)}>
+            {t("roster.thisWeek")}
+          </Button>
+        )}
+        <span className="ml-auto text-sm text-muted-foreground">
+          {t("roster.weekOf", { date: `${fmtDay(week.from)} – ${fmtDay(week.to)}` })}
+        </span>
       </div>
 
       {isLead && (
         <Card>
           <CardHeader>
-            <CardTitle>{t("roster.addShiftTitle", { date })}</CardTitle>
+            <CardTitle>{t("roster.addShiftTitle", { date: fmtDay(date) })}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="grid gap-4 sm:grid-cols-3">
@@ -264,15 +313,13 @@ export default function RosterPage() {
       {isLead && compare.data && compare.data.shifts.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>{t("roster.scheduledVsActual", { date })}</CardTitle>
+            <CardTitle>{t("roster.scheduledVsActual", { date: fmtDay(date) })}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col divide-y divide-border">
             {compare.data.shifts.map((s) => (
               <div key={s.rosterId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
                 <span className="font-medium">{s.employeeName}</span>
-                <span className="font-mono text-sm text-muted-foreground">
-                  {fmtMin(s.startMin)}–{fmtMin(s.endMin)}
-                </span>
+                <span className="font-mono text-sm text-muted-foreground">{range(s)}</span>
                 <span className="font-mono text-sm text-muted-foreground">
                   {s.actualIn
                     ? t("roster.inAt", { time: loc.time(s.actualIn) })
@@ -288,31 +335,80 @@ export default function RosterPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{isLead ? t("roster.allShiftsThisWeek") : t("roster.myShiftsThisWeek")}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col divide-y divide-border">
-          {(isLead ? all.isLoading : mine.isLoading) && (
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-11 w-full" />
-              <Skeleton className="h-11 w-full" />
-            </div>
-          )}
-          {shifts.length === 0 && !(isLead ? all.isLoading : mine.isLoading) && (
-            <p className="py-1 text-sm text-muted-foreground">{t("roster.noShifts")}</p>
-          )}
-          {shifts.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
-                <span className="font-mono text-muted-foreground">{s.shiftDate}</span>
-                <span className="font-mono">
-                  {fmtMin(s.startMin)}–{fmtMin(s.endMin)}
-                </span>
-                {isLead && <span className="font-medium">{s.employeeName}</span>}
-                {s.note && <span className="text-muted-foreground">· {s.note}</span>}
+      {!isLead && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("roster.myShiftsThisWeek")}</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {upcoming.isSuccess && (nextWhen ? t("roster.next", { when: nextWhen }) : t("roster.noUpcoming"))}
+            </p>
+            <p className="font-mono text-sm">
+              {t("roster.weekTotals", { rostered: fmtH(t, loc, rosteredMin), worked: fmtH(t, loc, workedMin) })}
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1">
+            {mine.isLoading && <Skeleton className="h-64 w-full" />}
+            {!mine.isLoading &&
+              days.map((day) => {
+                const ds = shifts.filter((s) => s.shiftDate === day);
+                return (
+                  <div
+                    key={day}
+                    className={cn(
+                      "flex items-center gap-3 rounded-md border border-transparent px-2 py-2",
+                      day === today && "border-primary/60 bg-primary/5",
+                      day < today && "opacity-60",
+                    )}
+                  >
+                    <span className="w-20 shrink-0 text-sm">
+                      <span className="font-medium">{loc.weekday(new Date(`${day}T12:00:00`).getDay())}</span>{" "}
+                      <span className="text-muted-foreground">{loc.date(`${day}T12:00:00`, { day: "numeric" })}</span>
+                    </span>
+                    <div className="relative h-2 flex-1 rounded-full bg-muted-foreground/15" aria-hidden>
+                      {ds.map((s) => (
+                        <span
+                          key={s.id}
+                          className="absolute inset-y-0 rounded-full bg-primary"
+                          style={{
+                            left: `${(s.startMin / 1440) * 100}%`,
+                            width: `${Math.max(1, ((Math.min(s.endMin, 1440) - s.startMin) / 1440) * 100)}%`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <span className="shrink-0 text-right font-mono text-xs sm:w-36">
+                      {ds.length ? ds.map(range).join(", ") : <span className="text-muted-foreground">{t("roster.off")}</span>}
+                    </span>
+                  </div>
+                );
+              })}
+          </CardContent>
+        </Card>
+      )}
+
+      {isLead && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("roster.allShiftsThisWeek")}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col divide-y divide-border">
+            {all.isLoading && (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-11 w-full" />
+                <Skeleton className="h-11 w-full" />
               </div>
-              {isLead && (
+            )}
+            {shifts.length === 0 && !all.isLoading && (
+              <p className="py-1 text-sm text-muted-foreground">{t("roster.noShifts")}</p>
+            )}
+            {shifts.map((s) => (
+              <div key={s.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
+                  <span className="text-muted-foreground">{fmtDay(s.shiftDate)}</span>
+                  <span className="font-mono">{range(s)}</span>
+                  <span className="font-medium">{s.employeeName}</span>
+                  {s.note && <span className="text-muted-foreground">· {s.note}</span>}
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -323,11 +419,11 @@ export default function RosterPage() {
                 >
                   <Trash2 />
                 </Button>
-              )}
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Confirm before destroying a shift — a single stray tap should never
           cancel someone's roster. */}
@@ -341,7 +437,7 @@ export default function RosterPage() {
             <DialogDescription>
               {cancelTarget &&
                 t("roster.cancelDialogBody", {
-                  shift: `${cancelTarget.employeeName ? `${cancelTarget.employeeName} · ` : ""}${cancelTarget.shiftDate} · ${fmtMin(cancelTarget.startMin)}–${fmtMin(cancelTarget.endMin)}`,
+                  shift: `${cancelTarget.employeeName ? `${cancelTarget.employeeName} · ` : ""}${fmtDay(cancelTarget.shiftDate)} · ${range(cancelTarget)}`,
                 })}
             </DialogDescription>
           </DialogHeader>

@@ -422,6 +422,27 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ROSTER_HOURS — add this area's keys directly below ====
+  "roster.next": "Næste: {when}",
+  "roster.onNow": "i gang nu til {time}",
+  "roster.today": "I dag",
+  "roster.noUpcoming": "Ingen kommende vagter.",
+  "roster.weekTotals": "Planlagt {rostered} · arbejdet {worked} indtil nu",
+  "roster.off": "Fri",
+  "roster.thisWeek": "Denne uge",
+  "myHours.weekOf": "Uge fra {date}",
+  "myHours.weekTotal": "{worked} af normalt {usual}",
+  "myHours.weekDays": "{n} dag(e)",
+  "myHours.rosteredShift": "Planlagt {time}",
+  "myHours.nothingRostered": "Intet planlagt",
+  "myHours.nothingRecorded": "Intet registreret",
+  "calendar.prevMonth": "Forrige måned",
+  "calendar.nextMonth": "Næste måned",
+  "calendar.legendApproved": "Godkendt",
+  "calendar.legendHours": "Har timer",
+  "calendar.legendAttention": "Kræver opmærksomhed",
+  "calendar.legendLeave": "Fravær",
+  "calendar.legendHoliday": "Helligdag",
+  "calendar.legendMissed": "Normal arbejdsdag, intet registreret",
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====

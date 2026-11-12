@@ -429,6 +429,27 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:ROSTER_HOURS — add this area's keys directly below ====
+  "roster.next": "Nästa: {when}",
+  "roster.onNow": "pågår nu till {time}",
+  "roster.today": "I dag",
+  "roster.noUpcoming": "Inga kommande pass.",
+  "roster.weekTotals": "Schemalagt {rostered} · arbetat {worked} hittills",
+  "roster.off": "Ledig",
+  "roster.thisWeek": "Denna vecka",
+  "myHours.weekOf": "Vecka från {date}",
+  "myHours.weekTotal": "{worked} av vanligt {usual}",
+  "myHours.weekDays": "{n} dag(ar)",
+  "myHours.rosteredShift": "Schemalagt {time}",
+  "myHours.nothingRostered": "Inget schemalagt",
+  "myHours.nothingRecorded": "Inget registrerat",
+  "calendar.prevMonth": "Föregående månad",
+  "calendar.nextMonth": "Nästa månad",
+  "calendar.legendApproved": "Godkänd",
+  "calendar.legendHours": "Har timmar",
+  "calendar.legendAttention": "Behöver åtgärd",
+  "calendar.legendLeave": "Ledighet",
+  "calendar.legendHoliday": "Helgdag",
+  "calendar.legendMissed": "Vanlig arbetsdag, inget registrerat",
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====
