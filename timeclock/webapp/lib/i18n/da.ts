@@ -336,6 +336,37 @@ const da: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch2:LEAVE — add this area's keys directly below ====
+  "leave.typeAvailable": "{type} · {hours} t tilbage",
+  "leave.oneDay": "1 dag",
+  "leave.nDays": "{n} dage",
+  "leave.leftAfter": "{hours} t tilbage herefter",
+  "leave.autoHoursHint": "Beregnet ud fra din normale dag på {hours} t. Ret det, hvis det er nødvendigt.",
+  "leave.endBeforeStart": "Til skal være samme dag som eller efter Fra.",
+  "leave.hoursPositive": "Timer skal være mere end 0.",
+  "leave.groupPending": "Afventer",
+  "leave.groupUpcoming": "Kommende",
+  "leave.groupPast": "Tidligere",
+  "leave.yourNote": "Din note: {note}",
+  "leave.reviewerNote": "Lederens note: {note}",
+  "leave.withdraw": "Træk tilbage",
+  "leave.statusCancelled": "Trukket tilbage",
+  "toast.leaveWithdrawn": "Anmodningen er trukket tilbage.",
+  "toast.insufficientBalancePending": "Kun {available} t tilbage, når dine afventende anmodninger ({pending} t) medregnes.",
+  "error.insufficient_balance_pending": "Ikke nok saldo, når dine afventende anmodninger medregnes.",
+  "leaveApprove.title": "Fraværsanmodninger",
+  "leaveApprove.none": "Ingen afventer.",
+  "leaveApprove.approve": "Godkend",
+  "leaveApprove.decline": "Afvis",
+  "leaveApprove.confirmDecline": "Afvis anmodning",
+  "leaveApprove.approveAll": "Godkend alle {n}",
+  "leaveApprove.balanceAfter": "{type}-saldo: {before} t → {after} t efter godkendelse",
+  "leaveApprove.alsoOff": "Også fraværende: {names}",
+  "leaveApprove.nobodyOff": "Ingen andre fraværende",
+  "leaveApprove.rostered": "På vagtplanen: {names}",
+  "leaveApprove.reasonPlaceholder": "Begrundelse (sendes til dem, valgfri)",
+  "toast.leaveApproved": "Fravær godkendt.",
+  "toast.leaveDeclined": "Fravær afvist.",
+  "toast.leaveApprovedAll": "{n} anmodninger godkendt.",
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====

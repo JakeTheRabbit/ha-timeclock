@@ -23,6 +23,7 @@ import { useLocale } from "@/lib/format";
 import { entriesHref } from "@/lib/links";
 import { localDay } from "@/components/entries/edit-entry-dialog";
 import { CorrectionRequest, type PendingCorrection } from "@/components/corrections/correction-request";
+import { LeaveApprovals } from "@/components/leave/leave-approvals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -48,15 +49,6 @@ interface Board {
     breakSince: string | null;
   }[];
   todayClosedMin: Record<string, number>;
-}
-interface PendingLeave {
-  id: string;
-  employeeName: string;
-  type: string;
-  startDate: string;
-  endDate: string;
-  hours: string;
-  note: string | null;
 }
 
 const errorMessage = (e: unknown): string => apiErrorText(e);
@@ -109,11 +101,6 @@ export default function ManagerPage() {
       apiGet<{ corrections: PendingCorrection[] }>("/corrections/pending"),
     enabled: !!canSee,
   });
-  const leave = useQuery({
-    queryKey: ["pending-leave"],
-    queryFn: () => apiGet<{ requests: PendingLeave[] }>("/leave/pending"),
-    enabled: !!canSee,
-  });
 
   const review = useQuery({
     queryKey: ["review-open-count"],
@@ -131,17 +118,6 @@ export default function ManagerPage() {
     onSuccess: (_data, v) => {
       toast.success(
         v.action === "approve" ? "Correction approved." : "Correction declined.",
-      );
-      qc.invalidateQueries();
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  const decideLeave = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "approve" | "reject" }) =>
-      apiPost(`/leave/${id}/${action}`, {}),
-    onSuccess: (_data, v) => {
-      toast.success(
-        v.action === "approve" ? "Leave approved." : "Leave declined.",
       );
       qc.invalidateQueries();
     },
@@ -256,56 +232,7 @@ export default function ManagerPage() {
       </Card>
 
       {/* Leave approval queue */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Leave requests</CardTitle>
-          <CardAction>
-            <Badge variant="secondary">{leave.data?.requests.length ?? 0}</Badge>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {leave.isLoading && <Skeleton className="h-20 w-full" />}
-          {leave.data?.requests.length === 0 && (
-            <p className="text-sm text-muted-foreground">None pending.</p>
-          )}
-          {leave.data?.requests.map((lr) => (
-            <div
-              key={lr.id}
-              className="flex flex-col gap-3 rounded-lg border border-border p-3"
-            >
-              <div className="text-sm">
-                <span className="font-medium">{lr.employeeName}</span>{" "}
-                <span className="capitalize text-muted-foreground">
-                  — {lr.type}
-                </span>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {lr.startDate} → {lr.endDate} ({lr.hours}h)
-                  {lr.note ? ` · ${lr.note}` : ""}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  disabled={decideLeave.isPending}
-                  onClick={() =>
-                    decideLeave.mutate({ id: lr.id, action: "approve" })
-                  }
-                >
-                  <Check /> Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  disabled={decideLeave.isPending}
-                  onClick={() =>
-                    decideLeave.mutate({ id: lr.id, action: "reject" })
-                  }
-                >
-                  <X /> Decline
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <LeaveApprovals />
 
       {/* Section links */}
       <Card className="py-1">

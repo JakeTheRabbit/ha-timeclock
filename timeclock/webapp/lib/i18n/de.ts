@@ -348,6 +348,37 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch2:LEAVE — add this area's keys directly below ====
+  "leave.typeAvailable": "{type} · {hours} Std. verfügbar",
+  "leave.oneDay": "1 Tag",
+  "leave.nDays": "{n} Tage",
+  "leave.leftAfter": "danach {hours} Std. übrig",
+  "leave.autoHoursHint": "Berechnet aus deinem üblichen {hours}-Std.-Tag. Bei Bedarf ändern.",
+  "leave.endBeforeStart": "Bis muss am oder nach Von liegen.",
+  "leave.hoursPositive": "Stunden müssen größer als 0 sein.",
+  "leave.groupPending": "Ausstehend",
+  "leave.groupUpcoming": "Bevorstehend",
+  "leave.groupPast": "Vergangen",
+  "leave.yourNote": "Deine Notiz: {note}",
+  "leave.reviewerNote": "Notiz der Leitung: {note}",
+  "leave.withdraw": "Zurückziehen",
+  "leave.statusCancelled": "Zurückgezogen",
+  "toast.leaveWithdrawn": "Antrag zurückgezogen.",
+  "toast.insufficientBalancePending": "Nur noch {available} Std. übrig, wenn deine ausstehenden Anträge ({pending} Std.) mitgezählt werden.",
+  "error.insufficient_balance_pending": "Nicht genug Guthaben, wenn deine ausstehenden Anträge mitgezählt werden.",
+  "leaveApprove.title": "Urlaubsanträge",
+  "leaveApprove.none": "Keine ausstehend.",
+  "leaveApprove.approve": "Genehmigen",
+  "leaveApprove.decline": "Ablehnen",
+  "leaveApprove.confirmDecline": "Antrag ablehnen",
+  "leaveApprove.approveAll": "Alle {n} genehmigen",
+  "leaveApprove.balanceAfter": "{type}-Guthaben: {before} Std. → {after} Std. nach Genehmigung",
+  "leaveApprove.alsoOff": "Ebenfalls abwesend: {names}",
+  "leaveApprove.nobodyOff": "Sonst niemand abwesend",
+  "leaveApprove.rostered": "Eingeplant: {names}",
+  "leaveApprove.reasonPlaceholder": "Grund (wird ihnen gesendet, optional)",
+  "toast.leaveApproved": "Urlaub genehmigt.",
+  "toast.leaveDeclined": "Urlaub abgelehnt.",
+  "toast.leaveApprovedAll": "{n} Anträge genehmigt.",
 
 
   // ==== batch2:CORRECTIONS — add this area's keys directly below ====
