@@ -10,10 +10,12 @@ import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { entriesHref } from "@/lib/links";
 import { useT } from "@/lib/i18n";
-import { errMsg, localDay, Textarea } from "@/components/entries/edit-entry-dialog";
+import { errMsg, localDay, Textarea, typicalFrom, type EntryRow } from "@/components/entries/edit-entry-dialog";
+import { HourDots, liveMinutes } from "@/components/entries/month-calendar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,12 +43,19 @@ interface Mod {
 
 interface DaySummary {
   day: string;
-  entries: { id: string; clockIn: string; clockOut: string | null; workedMinutes: number | null; breaks: unknown[] }[];
+  entries: EntryRow[];
   workedMinutes: number;
   hasOpen: boolean;
   approved: { at: string; by: string } | null;
   pendingMods: number;
   disputedMods: number;
+  /** Rostered shifts, facility-local minutes from midnight. */
+  rostered: { startMin: number; endMin: number }[];
+}
+interface PersonDays {
+  employeeId: string;
+  employeeName: string;
+  days: DaySummary[];
 }
 
 const KIND: Record<Kind, string> = {
@@ -65,6 +74,35 @@ const STATUS_STYLE: Record<Status, string> = {
 };
 
 const hrs = (min: number) => (min / 60).toFixed(2) + "h";
+const signedHrs = (min: number) => (min >= 0 ? "+" : "−") + hrs(Math.abs(min));
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+const dayMin = (d: DaySummary) => d.entries.reduce((s, e) => s + liveMinutes(e), 0);
+const breakMin = (d: DaySummary) =>
+  d.entries.reduce(
+    (s, e) =>
+      s + e.breaks.reduce((t, b) => t + ((b.endAt ? +new Date(b.endAt) : Date.now()) - +new Date(b.startAt)) / 60_000, 0),
+    0,
+  );
+/** Median worked minutes of the person's finished days — their usual day length. */
+function usualMin(days: DaySummary[]): number | null {
+  const xs = days.filter((d) => !d.hasOpen && d.workedMinutes > 0).map((d) => d.workedMinutes).sort((a, b) => a - b);
+  return xs.length >= 3 ? xs[Math.floor(xs.length / 2)] : null;
+}
+/** Can be approved as-is (same skip rules as the server, plus "no time"). */
+const isReady = (d: DaySummary) => !d.approved && !d.hasOpen && d.disputedMods === 0 && d.entries.length > 0;
+/** Monday (YYYY-MM-DD) of the week containing `day`. */
+function weekOf(day: string) {
+  const d = new Date(`${day}T12:00:00`);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDay(d);
+}
+const SKIP: Record<string, string> = {
+  open_entry: "still clocked in — close the shift first",
+  dispute_open: "open dispute — resolve it first",
+  already_approved: "already approved",
+};
+const REOPEN_CHIPS = ["Times need fixing", "Employee asked to change it", "Approved by mistake"];
 
 function useSpan() {
   const loc = useLocale();
@@ -80,7 +118,7 @@ function useSpan() {
   };
 }
 
-function ModCard({ mod, myId }: { mod: Mod; myId: string }) {
+function ModCard({ mod, myId, grouped }: { mod: Mod; myId: string; grouped?: boolean }) {
   const qc = useQueryClient();
   const t = useT();
   const loc = useLocale();
@@ -104,12 +142,16 @@ function ModCard({ mod, myId }: { mod: Mod; myId: string }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href={entriesHref(mod.employeeId, mod.day)} className="font-medium underline-offset-4 hover:underline">
-          {mod.employeeName}
-        </Link>
-        <Link href={entriesHref(mod.employeeId, mod.day)} className="text-muted-foreground underline-offset-4 hover:underline">
-          {loc.date(`${mod.day}T12:00:00`)}
-        </Link>
+        {!grouped && (
+          <>
+            <Link href={entriesHref(mod.employeeId, mod.day)} className="font-medium underline-offset-4 hover:underline">
+              {mod.employeeName}
+            </Link>
+            <Link href={entriesHref(mod.employeeId, mod.day)} className="text-muted-foreground underline-offset-4 hover:underline">
+              {loc.date(`${mod.day}T12:00:00`)}
+            </Link>
+          </>
+        )}
         <Badge variant="secondary">{KIND[mod.kind]}</Badge>
         <Badge className={`border-transparent capitalize ${STATUS_STYLE[mod.status]}`}>{mod.status}</Badge>
         <span className="ml-auto text-xs text-muted-foreground">{loc.dateTime(mod.createdAt)}</span>
@@ -199,10 +241,176 @@ function ModCard({ mod, myId }: { mod: Mod; myId: string }) {
   );
 }
 
+/** One day for one person: hour strip, totals, breaks, roster, vs usual, and the action. */
+function DayLine({
+  employeeId,
+  d,
+  usual,
+  isManager,
+  busy,
+  onApprove,
+  onReopen,
+}: {
+  employeeId: string;
+  d: DaySummary;
+  usual: number | null;
+  isManager: boolean;
+  busy: boolean;
+  onApprove: () => void;
+  onReopen: () => void;
+}) {
+  const loc = useLocale();
+  const worked = dayMin(d);
+  const brk = Math.round(breakMin(d));
+  const rostered = d.rostered.reduce((s, r) => s + r.endMin - r.startMin, 0);
+  const delta = usual != null && !d.hasOpen && d.entries.length ? worked - usual : null;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Link href={entriesHref(employeeId, d.day)} className="font-medium underline-offset-4 hover:underline">
+            {loc.date(`${d.day}T12:00:00`)}
+          </Link>
+          <span className="font-mono">{hrs(worked)}</span>
+          {delta != null && Math.abs(delta) >= 1 && (
+            <span
+              className={`font-mono text-xs ${Math.abs(delta) >= 30 ? "text-amber-300" : "text-muted-foreground"}`}
+              title={`Usual day ${hrs(usual!)}`}
+            >
+              {signedHrs(delta)} vs usual
+            </span>
+          )}
+          {d.approved && (
+            <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Approved by {d.approved.by}</Badge>
+          )}
+          {d.pendingMods > 0 && (
+            <Badge className="border-transparent bg-amber-500/15 text-amber-300">{d.pendingMods} to check</Badge>
+          )}
+          {d.disputedMods > 0 && (
+            <Badge className="border-transparent bg-destructive/15 text-destructive">{d.disputedMods} disputed</Badge>
+          )}
+          {d.hasOpen && <Badge variant="secondary">Clocked in</Badge>}
+        </div>
+        {d.entries.length > 0 && <HourDots day={d.day} entries={d.entries} compact />}
+        <div className="font-mono text-xs text-muted-foreground">
+          {d.entries.map((e) => `${loc.time(e.clockIn)}–${e.clockOut ? loc.time(e.clockOut) : "open"}`).join("  ·  ") || "—"}
+          {brk > 0 && `  ·  ${brk}m break`}
+          {d.rostered.length > 0 && (
+            <span title={`Rostered ${hrs(rostered)}`}>
+              {"  ·  rostered "}
+              {d.rostered.map((r) => `${hhmm(r.startMin)}–${hhmm(r.endMin)}`).join(", ")}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button asChild variant="ghost" size="sm" aria-label="Edit this day">
+          <Link href={entriesHref(employeeId, d.day, true)}>
+            <Pencil />
+          </Link>
+        </Button>
+        {d.approved ? (
+          isManager && (
+            <Button variant="secondary" size="sm" disabled={busy} onClick={onReopen}>
+              <Undo2 /> Reopen
+            </Button>
+          )
+        ) : d.hasOpen ? (
+          // Say why it can't be approved, and where to fix it.
+          <Button asChild variant="outline" size="sm">
+            <Link href={entriesHref(employeeId, d.day, true)}>Still clocked in — close shift</Link>
+          </Button>
+        ) : d.disputedMods > 0 ? (
+          <span className="self-center text-xs text-destructive">Dispute open — resolve above</span>
+        ) : d.entries.length === 0 ? (
+          <span className="self-center text-xs text-muted-foreground">No time</span>
+        ) : (
+          <Button size="sm" disabled={busy} onClick={onApprove}>
+            <CircleCheck /> Approve
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Reason for taking an approval back (the employee can edit the day again). */
+function ReopenDialog({
+  target,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  target: { name: string; day: string } | null;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const loc = useLocale();
+  const [reason, setReason] = useState("");
+  const ok = reason.trim().length >= 3;
+  return (
+    <Dialog
+      open={!!target}
+      onOpenChange={(o) => {
+        if (!o) {
+          setReason("");
+          onClose();
+        }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reopen this day?</DialogTitle>
+          <DialogDescription>
+            {target && `${target.name} · ${loc.date(`${target.day}T12:00:00`)}. `}
+            They can edit it again until it is re-approved.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-2">
+          {REOPEN_CHIPS.map((c) => (
+            <Button key={c} type="button" variant={reason === c ? "default" : "outline"} size="sm" onClick={() => setReason(c)}>
+              {c}
+            </Button>
+          ))}
+        </div>
+        <Textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="min-h-16"
+          placeholder="Why reopen it? (at least 3 characters)"
+          aria-label="Reason"
+        />
+        <DialogFooter>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setReason("");
+              onClose();
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={!ok || busy}
+            onClick={() => {
+              onConfirm(reason.trim());
+              setReason("");
+            }}
+          >
+            <Undo2 /> Reopen
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * Timesheet review: (1) every change staff made to their own times, each with
- * their reason — tick Acknowledge (read it) or Dispute (opens a conversation);
- * (2) approve days, which locks them against further staff edits.
+ * their reason, grouped by person then day — tick Acknowledge (read it) or
+ * Dispute (opens a conversation); (2) approve days, which locks them against
+ * further staff edits. Defaults to everyone, last two pay periods.
  */
 export default function ReviewPage() {
   const qc = useQueryClient();
@@ -210,9 +418,11 @@ export default function ReviewPage() {
   const loc = useLocale();
   const { session, isLoading } = useSession();
   const canSee = session && ["lead", "manager", "admin"].includes(session.employee.role);
-  const isManager = session && ["manager", "admin"].includes(session.employee.role);
+  const isManager = !!session && ["manager", "admin"].includes(session.employee.role);
   const [filter, setFilter] = useState<"open" | "all">("open");
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [employeeId, setEmployeeId] = useState<string>("all");
+  const [dayView, setDayView] = useState<"todo" | "all">("todo");
+  const [reopen, setReopen] = useState<{ employeeId: string; name: string; day: string } | null>(null);
 
   const mods = useQuery({
     queryKey: ["review-mods", filter],
@@ -220,60 +430,79 @@ export default function ReviewPage() {
     enabled: !!canSee,
     refetchInterval: 30_000,
   });
-  const people = useQuery({
-    queryKey: ["manager-employees"],
-    queryFn: () => apiGet<{ employees: { id: string; displayName: string; active: boolean }[] }>("/manager/employees"),
-    enabled: !!canSee,
-  });
-  const range = useMemo(() => ({ from: localDay(new Date(Date.now() - 20 * 86400_000)), to: localDay() }), []);
+  // Everyone's days; the person picker filters client-side so staff-change
+  // groups can always show the day's strip.
   const days = useQuery({
-    queryKey: ["review-days", employeeId],
-    queryFn: () =>
-      apiGet<{ days: DaySummary[] }>(`/review/days?employeeId=${employeeId}&from=${range.from}&to=${range.to}`),
-    enabled: !!employeeId,
+    queryKey: ["review-days", "all"],
+    queryFn: () => apiGet<{ from: string; to: string; people: PersonDays[] }>("/review/days/all"),
+    enabled: !!canSee,
   });
 
   const refreshDays = () => {
     qc.invalidateQueries({ queryKey: ["review-days"] });
     qc.invalidateQueries({ queryKey: ["manager-entries"] });
   };
+  const refreshMods = () => {
+    qc.invalidateQueries({ queryKey: ["review-mods"] });
+    qc.invalidateQueries({ queryKey: ["review-days"] });
+    qc.invalidateQueries({ queryKey: ["review-open-count"] });
+  };
+  const names = useMemo(
+    () => new Map((days.data?.people ?? []).map((p) => [p.employeeId, p.employeeName])),
+    [days.data],
+  );
+  // One call per person (the endpoint takes one employee); results pooled.
   const approve = useMutation({
-    mutationFn: (ds: string[]) =>
-      apiPost<{ approved: string[]; skipped: { day: string; reason: string }[] }>("/review/days/approve", { employeeId, days: ds }),
+    mutationFn: async (items: { employeeId: string; days: string[] }[]) => {
+      const out = { approved: 0, skipped: [] as { name: string; day: string; reason: string }[] };
+      for (const it of items) {
+        const r = await apiPost<{ approved: string[]; skipped: { day: string; reason: string }[] }>("/review/days/approve", it);
+        out.approved += r.approved.length;
+        for (const s of r.skipped) out.skipped.push({ ...s, name: names.get(it.employeeId) ?? "" });
+      }
+      return out;
+    },
     onSuccess: (r) => {
-      if (r.approved.length) toast.success(`Approved ${r.approved.length} day(s).`);
-      for (const s of r.skipped)
-        toast.warning(
-          `${s.day}: ${
-            s.reason === "open_entry"
-              ? "still clocked in — close the shift first"
-              : s.reason === "dispute_open"
-                ? "open dispute — resolve it first"
-                : "already approved"
-          }`,
-        );
+      if (r.approved) toast.success(`Approved ${r.approved} day(s).`);
+      for (const s of r.skipped) toast.warning(`${s.name ? `${s.name}, ` : ""}${s.day}: ${SKIP[s.reason] ?? s.reason}`);
       refreshDays();
     },
-    onError: (e) => toast.error(errMsg(e, t)),
+    onError: (e) => {
+      toast.error(errMsg(e, t));
+      refreshDays();
+    },
   });
   const unapprove = useMutation({
-    mutationFn: ({ day, reason }: { day: string; reason: string }) =>
-      apiPost("/review/days/unapprove", { employeeId, day, reason }),
+    mutationFn: ({ employeeId: emp, day, reason }: { employeeId: string; day: string; reason: string }) =>
+      apiPost("/review/days/unapprove", { employeeId: emp, day, reason }),
     onSuccess: () => {
       toast.success("Approval removed — staff can edit that day again.");
+      setReopen(null);
       refreshDays();
     },
     onError: (e) => toast.error(errMsg(e, t)),
   });
   const ackAll = useMutation({
-    mutationFn: (ids: string[]) => apiPost<{ acknowledged: number }>("/review/modifications/acknowledge", { ids }),
-    onSuccess: (r) => {
-      toast.success(`Acknowledged ${r.acknowledged} change(s).`);
-      qc.invalidateQueries({ queryKey: ["review-mods"] });
-      qc.invalidateQueries({ queryKey: ["review-days"] });
-      qc.invalidateQueries({ queryKey: ["review-open-count"] });
+    mutationFn: async ({ ids, approveDay }: { ids: string[]; approveDay?: { employeeId: string; day: string } }) => {
+      const r = await apiPost<{ acknowledged: number }>("/review/modifications/acknowledge", { ids });
+      const a = approveDay
+        ? await apiPost<{ approved: string[]; skipped: { day: string; reason: string }[] }>("/review/days/approve", {
+            employeeId: approveDay.employeeId,
+            days: [approveDay.day],
+          })
+        : null;
+      return { ...r, approved: a?.approved.length ?? 0, skipped: a?.skipped ?? [] };
     },
-    onError: (e) => toast.error(errMsg(e, t)),
+    onSuccess: (r) => {
+      toast.success(`Acknowledged ${r.acknowledged} change(s)${r.approved ? " and approved the day" : ""}.`);
+      for (const s of r.skipped) toast.warning(`${s.day}: ${SKIP[s.reason] ?? s.reason}`);
+      refreshMods();
+      qc.invalidateQueries({ queryKey: ["manager-entries"] });
+    },
+    onError: (e) => {
+      toast.error(errMsg(e, t));
+      refreshMods();
+    },
   });
 
   if (isLoading)
@@ -296,7 +525,31 @@ export default function ReviewPage() {
 
   const list = mods.data?.modifications ?? [];
   const pendingIds = list.filter((m) => m.status === "pending").map((m) => m.id);
-  const eligible = (days.data?.days ?? []).filter((d) => !d.approved && !d.hasOpen && d.disputedMods === 0 && d.entries.length > 0);
+  const dayByKey = new Map<string, DaySummary>();
+  for (const p of days.data?.people ?? []) for (const d of p.days) dayByKey.set(`${p.employeeId}|${d.day}`, d);
+
+  // Staff changes: person -> day.
+  const modGroups = new Map<string, { employeeId: string; name: string; days: Map<string, Mod[]> }>();
+  for (const m of list) {
+    let g = modGroups.get(m.employeeId);
+    if (!g) modGroups.set(m.employeeId, (g = { employeeId: m.employeeId, name: m.employeeName, days: new Map() }));
+    g.days.set(m.day, [...(g.days.get(m.day) ?? []), m]);
+  }
+  const modPeople = [...modGroups.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Approve days: person -> week, filtered by picker and view.
+  const people = (days.data?.people ?? [])
+    .filter((p) => employeeId === "all" || p.employeeId === employeeId)
+    .map((p) => {
+      const shown = p.days.filter((d) => dayView === "all" || !d.approved);
+      const weeks = new Map<string, DaySummary[]>();
+      for (const d of shown) weeks.set(weekOf(d.day), [...(weeks.get(weekOf(d.day)) ?? []), d]);
+      const typical = typicalFrom(p.days.flatMap((d) => d.entries));
+      return { ...p, weeks, ready: p.days.filter(isReady), usual: usualMin(p.days), typical, hasWork: p.days.some((d) => d.entries.length) };
+    })
+    .filter((p) => p.weeks.size > 0);
+  const allReady = people.filter((p) => p.ready.length).map((p) => ({ employeeId: p.employeeId, days: p.ready.map((d) => d.day) }));
+  const allReadyCount = allReady.reduce((s, x) => s + x.days.length, 0);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
@@ -316,114 +569,182 @@ export default function ReviewPage() {
             </Tabs>
           </CardAction>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        <CardContent className="flex flex-col gap-4">
           {mods.isLoading && <Skeleton className="h-24 w-full" />}
           {!mods.isLoading && list.length === 0 && (
             <p className="text-sm text-muted-foreground">{filter === "open" ? "Nothing to check." : "No changes yet."}</p>
           )}
-          {pendingIds.length > 1 && (
-            <Button variant="secondary" className="self-start" disabled={ackAll.isPending} onClick={() => ackAll.mutate(pendingIds)}>
+          {pendingIds.length > 1 && modPeople.length > 1 && (
+            <Button
+              variant="secondary"
+              className="self-start"
+              disabled={ackAll.isPending}
+              onClick={() => ackAll.mutate({ ids: pendingIds })}
+            >
               <CheckCheck /> Acknowledge all {pendingIds.length}
             </Button>
           )}
-          {list.map((m) => (
-            <ModCard key={m.id} mod={m} myId={session.employee.id} />
-          ))}
+          {modPeople.map((g) => {
+            const personPending = [...g.days.values()].flat().filter((m) => m.status === "pending").map((m) => m.id);
+            return (
+              <section key={g.employeeId} className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link href={entriesHref(g.employeeId)} className="font-medium underline-offset-4 hover:underline">
+                    {g.name}
+                  </Link>
+                  {personPending.length > 0 && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="ml-auto"
+                      disabled={ackAll.isPending}
+                      onClick={() => ackAll.mutate({ ids: personPending })}
+                    >
+                      <CheckCheck /> Acknowledge all for {g.name} ({personPending.length})
+                    </Button>
+                  )}
+                </div>
+                {[...g.days.entries()]
+                  .sort(([a], [b]) => (a < b ? 1 : -1))
+                  .map(([day, ms]) => {
+                    const d = dayByKey.get(`${g.employeeId}|${day}`);
+                    const dayPending = ms.filter((m) => m.status === "pending").map((m) => m.id);
+                    // After acknowledging, the day is approvable if nothing else blocks it.
+                    const canAckApprove = !!d && dayPending.length > 0 && isReady(d);
+                    return (
+                      <div key={day} className="flex flex-col gap-2 border-l-2 border-border pl-3">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <Link
+                            href={entriesHref(g.employeeId, day)}
+                            className="text-muted-foreground underline-offset-4 hover:underline"
+                          >
+                            {loc.date(`${day}T12:00:00`)}
+                          </Link>
+                          {d && <span className="font-mono">{hrs(dayMin(d))}</span>}
+                          {d?.approved && (
+                            <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Approved</Badge>
+                          )}
+                          {canAckApprove && (
+                            <Button
+                              size="sm"
+                              className="ml-auto"
+                              disabled={ackAll.isPending}
+                              onClick={() => ackAll.mutate({ ids: dayPending, approveDay: { employeeId: g.employeeId, day } })}
+                            >
+                              <CircleCheck /> Acknowledge + approve day
+                            </Button>
+                          )}
+                        </div>
+                        {d && d.entries.length > 0 && <HourDots day={day} entries={d.entries} compact />}
+                        {ms.map((m) => (
+                          <ModCard key={m.id} mod={m} myId={session.employee.id} grouped />
+                        ))}
+                      </div>
+                    );
+                  })}
+              </section>
+            );
+          })}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>Approve days</CardTitle>
-          <CardDescription>An approved day is locked: the employee can no longer change it. You still can.</CardDescription>
+          <CardDescription>
+            An approved day is locked: the employee can no longer change it. You still can.
+            {days.data && ` Showing ${loc.date(`${days.data.from}T12:00:00`)} – ${loc.date(`${days.data.to}T12:00:00`)}.`}
+          </CardDescription>
+          <CardAction>
+            <Tabs value={dayView} onValueChange={(v) => setDayView(v as "todo" | "all")}>
+              <TabsList>
+                <TabsTrigger value="todo">To approve</TabsTrigger>
+                <TabsTrigger value="all">All days</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </CardAction>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <Select value={employeeId ?? undefined} onValueChange={setEmployeeId}>
-            <SelectTrigger aria-label="Select employee">
-              <SelectValue placeholder="Select an employee…" />
-            </SelectTrigger>
-            <SelectContent>
-              {people.data?.employees
-                .filter((p) => p.active)
-                .map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.displayName}
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={employeeId} onValueChange={setEmployeeId}>
+              <SelectTrigger aria-label="Filter by employee" className="min-w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Everyone</SelectItem>
+                {(days.data?.people ?? []).map((p) => (
+                  <SelectItem key={p.employeeId} value={p.employeeId}>
+                    {p.employeeName}
                   </SelectItem>
                 ))}
-            </SelectContent>
-          </Select>
+              </SelectContent>
+            </Select>
+            {allReadyCount > 1 && (
+              <Button className="ml-auto" disabled={approve.isPending} onClick={() => approve.mutate(allReady)}>
+                <CircleCheck /> Approve all {allReadyCount} ready
+              </Button>
+            )}
+          </div>
 
-          {employeeId && days.isLoading && <Skeleton className="h-24 w-full" />}
-          {employeeId && !days.isLoading && (days.data?.days.length ?? 0) === 0 && (
-            <p className="text-sm text-muted-foreground">No time in the last 3 weeks.</p>
+          {days.isLoading && <Skeleton className="h-24 w-full" />}
+          {!days.isLoading && people.length === 0 && (
+            <p className="text-sm text-muted-foreground">{dayView === "todo" ? "Nothing waiting to approve." : "No time in this window."}</p>
           )}
-          {eligible.length > 1 && (
-            <Button className="self-start" disabled={approve.isPending} onClick={() => approve.mutate(eligible.map((d) => d.day))}>
-              <CircleCheck /> Approve all {eligible.length} ready days
-            </Button>
-          )}
-          {days.data?.days.map((d) => (
-            <div key={d.day} className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="font-medium">{loc.date(`${d.day}T12:00:00`)}</span>
-                  <span className="font-mono">{hrs(d.workedMinutes)}</span>
-                  {d.approved && (
-                    <Badge className="border-transparent bg-emerald-500/15 text-emerald-300">Approved by {d.approved.by}</Badge>
-                  )}
-                  {d.pendingMods > 0 && (
-                    <Badge className="border-transparent bg-amber-500/15 text-amber-300">{d.pendingMods} to check</Badge>
-                  )}
-                  {d.disputedMods > 0 && (
-                    <Badge className="border-transparent bg-destructive/15 text-destructive">{d.disputedMods} disputed</Badge>
-                  )}
-                  {d.hasOpen && <Badge variant="secondary">Clocked in</Badge>}
-                </div>
-                <div className="font-mono text-xs text-muted-foreground">
-                  {d.entries
-                    .map((e) => `${loc.time(e.clockIn)}–${e.clockOut ? loc.time(e.clockOut) : "open"}`)
-                    .join("  ·  ") || "—"}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button asChild variant="ghost" size="sm" aria-label="Edit this day">
-                  <Link href={entriesHref(employeeId!, d.day, true)}>
-                    <Pencil />
-                  </Link>
-                </Button>
-                {d.approved ? (
-                  isManager && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={unapprove.isPending}
-                      onClick={() => {
-                        const reason = window.prompt("Why reopen this day for the employee?");
-                        if (reason && reason.trim().length >= 3) unapprove.mutate({ day: d.day, reason });
-                      }}
-                    >
-                      <Undo2 /> Reopen
-                    </Button>
-                  )
-                ) : d.hasOpen ? (
-                  // Say why it can't be approved, and where to fix it.
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={entriesHref(employeeId!, d.day, true)}>Still clocked in — close shift</Link>
-                  </Button>
-                ) : d.disputedMods > 0 ? (
-                  <span className="self-center text-xs text-destructive">Dispute open — resolve above</span>
-                ) : d.entries.length === 0 ? (
-                  <span className="self-center text-xs text-muted-foreground">No time</span>
-                ) : (
-                  <Button size="sm" disabled={approve.isPending} onClick={() => approve.mutate([d.day])}>
-                    <CircleCheck /> Approve
+          {people.map((p) => (
+            <section key={p.employeeId} className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href={entriesHref(p.employeeId)} className="font-medium underline-offset-4 hover:underline">
+                  {p.employeeName}
+                </Link>
+                {p.hasWork && (
+                  <span className="text-xs text-muted-foreground">
+                    usually {p.typical.start}–{p.typical.end}
+                    {p.usual != null && ` · ${hrs(p.usual)}`}
+                  </span>
+                )}
+                {p.ready.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="ml-auto"
+                    disabled={approve.isPending}
+                    onClick={() => approve.mutate([{ employeeId: p.employeeId, days: p.ready.map((d) => d.day) }])}
+                  >
+                    <CircleCheck /> Approve {p.ready.length} ready
                   </Button>
                 )}
               </div>
-            </div>
+              {[...p.weeks.entries()].map(([wk, ds]) => (
+                <div key={wk} className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Week of {loc.date(`${wk}T12:00:00`)}</span>
+                    <span className="ml-auto font-mono">{hrs(ds.reduce((s, d) => s + dayMin(d), 0))}</span>
+                  </div>
+                  {ds.map((d) => (
+                    <DayLine
+                      key={d.day}
+                      employeeId={p.employeeId}
+                      d={d}
+                      usual={p.usual}
+                      isManager={isManager}
+                      busy={approve.isPending || unapprove.isPending}
+                      onApprove={() => approve.mutate([{ employeeId: p.employeeId, days: [d.day] }])}
+                      onReopen={() => setReopen({ employeeId: p.employeeId, name: p.employeeName, day: d.day })}
+                    />
+                  ))}
+                </div>
+              ))}
+            </section>
           ))}
         </CardContent>
       </Card>
+
+      <ReopenDialog
+        target={reopen}
+        busy={unapprove.isPending}
+        onClose={() => setReopen(null)}
+        onConfirm={(reason) => reopen && unapprove.mutate({ employeeId: reopen.employeeId, day: reopen.day, reason })}
+      />
     </div>
   );
 }
