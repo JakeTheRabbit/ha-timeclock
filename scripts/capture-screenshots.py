@@ -41,31 +41,43 @@ def pick_employee(page: Page, name: str) -> None:
     page.wait_for_timeout(1200)
 
 
+def tab(page: Page, name: str) -> None:
+    """Client-side nav (a reload would reset the demo back to the admin)."""
+    page.get_by_role("link", name=name, exact=True).last.click()
+    page.wait_for_timeout(1800)
+
+
 def phone_shots(page: Page) -> None:
-    go(page, "/", "Clock in")
-    shot(page, "home")
-    go(page, "/clock/", "Clock in")
-    page.get_by_role("button", name="Clock in").first.click()
-    page.wait_for_timeout(1500)
-    page.get_by_role("button", name="Rest break").first.click()
-    page.wait_for_timeout(1500)
-    shot(page, "clock")
-    go(page, "/my-hours/")
-    shot(page, "my-hours", full=True)
-    go(page, "/leave/", "Request leave")
-    shot(page, "leave", full=True)
-    go(page, "/roster/")
-    shot(page, "roster", full=True)
-    if page.goto(f"{BASE}/me/").ok:
-        page.wait_for_timeout(1500)
-        shot(page, "me", full=True)
-    # Signed-out kiosk last (sign-out survives until reload).
+    # Staff screens as a regular employee (Jordan Lee, PIN 4567). The demo
+    # starts signed in as the admin and resets on reload, so sign out, sign in
+    # with the PIN, then move around with in-app links only.
     go(page, "/pin/")
-    signout = page.get_by_role("button", name="Sign out")
-    if signout.count():
-        signout.first.click()
-        page.wait_for_timeout(1500)
+    page.get_by_role("button", name="Sign out").first.click()
+    page.wait_for_timeout(800)
+    page.get_by_text("Kiosk sign-in").first.click()
+    page.get_by_text("Jordan Lee").first.wait_for(timeout=20_000)
+    page.wait_for_timeout(800)
     shot(page, "pin")
+    page.get_by_text("Jordan Lee").first.click()
+    page.wait_for_timeout(500)
+    page.keyboard.type("4567")
+    page.keyboard.press("Enter")
+    page.get_by_role("button", name="Clock in").first.wait_for(timeout=20_000)
+    page.wait_for_timeout(1200)
+    page.get_by_role("button", name="Clock in").first.click()
+    page.wait_for_timeout(2500)
+    shot(page, "clock")
+    tab(page, "Hours")
+    shot(page, "my-hours")
+    tab(page, "Roster")
+    shot(page, "roster")
+    tab(page, "Leave")
+    shot(page, "leave")
+    tab(page, "Home")
+    shot(page, "home")
+    page.locator('a[href$="/me"], a[href$="/me/"]').first.click()
+    page.wait_for_timeout(1800)
+    shot(page, "me")
 
 
 def desktop_shots(page: Page) -> None:

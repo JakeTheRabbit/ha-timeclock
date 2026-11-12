@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.14.0 — consistency, kiosk, admin depth
+
+Staff
+- **Roster** is a week strip (respects the site week start): shift bars per
+  day, today highlighted, "Next: Tue 08:00–16:30", rostered vs worked so far,
+  week steppers. Times follow the site language/12h setting.
+- **My hours** groups days by week with "Xh of usual Yh" and collapses other
+  weeks; the calendar has a legend, tints leave and public holidays, rings
+  usual workdays with nothing recorded, and shows the rostered shift for a
+  future day.
+- **Profile (/me)**: change your own PIN, pick a language for this device, set
+  your phone notification service; theme moved here from Home.
+- **Kiosk**: signs out 5 s after a punch on a shared kiosk ("tap to stay");
+  PIN backspace deletes one digit (hold to clear), keyboard input, tries left
+  after a wrong PIN; staff list has search, last-used-first and an "in" dot.
+- **Offline punches are per person**: a punch queued offline only replays for
+  the person who made it (server rejects a replay for anyone else).
+
+Managers / admins
+- **Insights**: shifts, bars and day cells open that person's day; a worker
+  row filters the page; every number compares with the previous period;
+  phone layout fixed.
+- **Audit log**: names instead of IDs, field-by-field old ⇒ new, readable
+  types/actions, server-side filters (type, person, dates, text) and paging.
+- **Employees**: searchable Active / Inactive list; each person opens a sheet
+  (Access / Pay / Presence) with links to their week and what they're owed.
+- **Settings**: one Save / Discard bar for the page; real forms for pay
+  period, overtime, rounding, auto-deducted breaks, auto clock-out and the
+  payroll export format; Advanced (JSON) kept; validation errors under the
+  field.
+- **New screens**: Devices (rename, revoke, bind, notification test), Leave
+  balances (balances, ledger, adjust, run accrual).
+- **Exports**: one "Payroll export" button using the configured format, other
+  formats in a menu, warning on an unlocked period, "last exported" stamp
+  (exports are now audited).
+
+Everywhere
+- One **status badge** style (pending, approved, disputed, locked, paid,
+  edited, …) readable in light and dark themes.
+- Manager and admin pages and server notifications are **translated** into
+  all 5 languages; notifications use the site language.
+
 ## 0.13.0 — context where decisions get made
 
 Staff
