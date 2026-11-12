@@ -3,7 +3,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { employees } from "@/db/schema";
+import { employees, timeEntries } from "@/db/schema";
 import type { AppEnv } from "@/server/context";
 import { verifyPin, pinRateCheck, pinRateFail, pinRateReset } from "@/server/auth/pin";
 import { findEmployeeForHaIdentity } from "@/server/auth/employee-link";
@@ -38,15 +38,27 @@ export const auth = new Hono<AppEnv>()
   // Kiosk PIN-pad grid: active employees. Names only — reachable by anyone who
   // can open the panel (HA-authenticated LAN users). Employees without a PIN
   // are included (shown disabled) so a missing PIN reads as "ask the admin",
-  // not "my account vanished".
+  // not "my account vanished". `clockedIn` is a bare boolean (the kiosk's
+  // "in" dot) — no times, jobs or locations.
   .get("/kiosk-employees", async (c) => {
-    const rows = await getDb()
+    const db = getDb();
+    const rows = await db
       .select({ id: employees.id, displayName: employees.displayName, pinHash: employees.pinHash })
       .from(employees)
       .where(eq(employees.active, true))
       .orderBy(employees.displayName);
+    const open = await db
+      .selectDistinct({ employeeId: timeEntries.employeeId })
+      .from(timeEntries)
+      .where(isNull(timeEntries.clockOut));
+    const inIds = new Set(open.map((o) => o.employeeId));
     return c.json({
-      employees: rows.map(({ id, displayName, pinHash }) => ({ id, displayName, hasPin: pinHash != null })),
+      employees: rows.map(({ id, displayName, pinHash }) => ({
+        id,
+        displayName,
+        hasPin: pinHash != null,
+        clockedIn: inIds.has(id),
+      })),
     });
   })
 
@@ -100,6 +112,8 @@ export const auth = new Hono<AppEnv>()
       session: {
         id: session.id,
         expiresAt: session.expiresAt,
+        // PIN sign-in on a bound kiosk device: the clock screen auto signs out.
+        kiosk: session.deviceId != null,
         employee: { id: employee.id, displayName: employee.displayName, role: employee.role },
       },
     });
@@ -197,9 +211,9 @@ export const auth = new Hono<AppEnv>()
       where: (e, { eq: eq_, and: and_ }) => and_(eq_(e.id, employeeId), eq_(e.active, true)),
     });
     if (!employee?.pinHash || !verifyPin(pin, employee.pinHash)) {
-      pinRateFail(rateKey);
+      const attemptsLeft = pinRateFail(rateKey);
       // Same response for unknown employee / no PIN / wrong PIN.
-      return c.json({ error: "invalid_credentials" }, 401);
+      return c.json({ error: "invalid_credentials", attemptsLeft }, 401);
     }
     pinRateReset(rateKey);
 

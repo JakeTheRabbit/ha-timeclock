@@ -432,6 +432,12 @@ const sv: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====
+  "pinPad.backspace": "Radera sista siffran (håll för att rensa)",
+  "pin.wrongPinLeft": "Fel PIN — {n} försök kvar",
+  "pin.wrongPinLocked": "Fel PIN — för många försök, vänta en minut",
+  "pin.search": "Hitta ditt namn",
+  "pin.noMatch": "Ingen matchar ”{q}”",
+  "kiosk.signingOut": "Loggar ut om {n} s — tryck för att stanna",
 
 
   // ==== batch3:INSIGHTS_AUDIT — add this area's keys directly below ====

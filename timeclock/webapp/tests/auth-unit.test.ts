@@ -39,6 +39,12 @@ describe("PIN rate limiter", () => {
     expect(pinRateCheck(key).allowed).toBe(true);
   });
 
+  it("reports tries left, 0 on the locking failure", () => {
+    const key = "emp:devLeft";
+    expect([1, 2, 3, 4, 5].map(() => pinRateFail(key))).toEqual([4, 3, 2, 1, 0]);
+    expect(pinRateCheck(key).allowed).toBe(false);
+  });
+
   it("keys are independent", () => {
     for (let i = 0; i < 5; i++) pinRateFail("emp:devB");
     expect(pinRateCheck("emp:devB").allowed).toBe(false);

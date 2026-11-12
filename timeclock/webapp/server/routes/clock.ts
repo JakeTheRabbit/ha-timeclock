@@ -27,6 +27,8 @@ const clockInSchema = z.object({
   // Offline kiosk queue (P12): punch happened while the tablet was offline.
   // Bounded to the last 24h; the entry is flagged for manager review.
   clientQueuedAt: z.string().datetime({ offset: true }).nullish(),
+  // Who queued it: a shared kiosk must not replay A's punch under B's session.
+  queuedFor: z.string().uuid().nullish(),
 });
 
 /** Validate an offline-queued timestamp: within the last 24h, not in future. */
@@ -111,6 +113,7 @@ export const clock = new Hono<AppEnv>()
     const body = clockInSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: "bad_request" }, 400);
     const me = c.get("auth")!.employee;
+    if (body.data.queuedFor && body.data.queuedFor !== me.id) return c.json({ error: "queued_for_other" }, 409);
 
     if (await openEntryFor(me.id)) return c.json({ error: "already_clocked_in" }, 409);
 
@@ -213,12 +216,17 @@ export const clock = new Hono<AppEnv>()
 
   .post("/out", async (c) => {
     const me = c.get("auth")!.employee;
+    const outBody = z
+      .object({
+        clientQueuedAt: z.string().datetime({ offset: true }).nullish(),
+        queuedFor: z.string().uuid().nullish(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (outBody.success && outBody.data.queuedFor && outBody.data.queuedFor !== me.id)
+      return c.json({ error: "queued_for_other" }, 409);
     const entry = await openEntryFor(me.id);
     if (!entry) return c.json({ error: "not_clocked_in" }, 409);
     const db = getDb();
-    const outBody = z
-      .object({ clientQueuedAt: z.string().datetime({ offset: true }).nullish() })
-      .safeParse(await c.req.json().catch(() => ({})));
     const queuedOut = outBody.success ? queuedInstant(outBody.data.clientQueuedAt) : null;
     const now = queuedOut && queuedOut > entry.clockIn ? queuedOut : new Date();
 

@@ -57,6 +57,19 @@ run("P12 offline queue (server side, real Postgres)", () => {
     expect((await out.json()).workedMinutes).toBeCloseTo(60, -1); // ~1h
   });
 
+  it("a punch queued for someone else is rejected (shared kiosk)", async () => {
+    const other = "00000000-0000-4000-8000-000000000000";
+    for (const path of ["/api/clock/in", "/api/clock/out"]) {
+      const res = await app.request(path, {
+        method: "POST",
+        headers: jsonHeaders(w.employeeCookie),
+        body: JSON.stringify({ clientQueuedAt: new Date().toISOString(), queuedFor: other }),
+      });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("queued_for_other");
+    }
+  });
+
   it("stale queued timestamps (>24h) are ignored, not honoured", async () => {
     const ancient = new Date(Date.now() - 48 * 3600_000).toISOString();
     const res = await app.request("/api/clock/in", {

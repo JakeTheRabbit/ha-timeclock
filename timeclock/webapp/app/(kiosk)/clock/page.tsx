@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, CloudOff, Coffee, KeyRound, LogIn, LogOut, UtensilsCrossed } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +59,8 @@ interface ActResult {
 }
 
 const NO_JOB = "__none__";
+const AUTO_SIGN_OUT_S = 5;
+type Done = "in" | "out" | "breakStart" | "breakEnd";
 
 /** Best-effort location; null if denied, unavailable or slow. */
 const getGeo = () =>
@@ -95,6 +98,34 @@ export default function ClockPage() {
   const [jobId, setJobId] = useState<string>("");
   const [jobTouched, setJobTouched] = useState(false);
   const [confirmOut, setConfirmOut] = useState(0); // minutes auto-deduct would take; 0 = closed
+  const me = session?.employee.id ?? "";
+  const router = useRouter();
+
+  // Shared kiosk (PIN sign-in on a bound device): after a punch, confirm it,
+  // then sign out back to /pin unless someone taps. Personal phones: no-op.
+  const [done, setDone] = useState<{ kind: Done; left: number } | null>(null);
+  const finish = (kind: Done) => {
+    if (session?.kiosk) setDone({ kind, left: AUTO_SIGN_OUT_S });
+  };
+  useEffect(() => {
+    if (!done) return;
+    const cancel = () => setDone(null);
+    window.addEventListener("keydown", cancel);
+    const id = setTimeout(() => {
+      if (done.left > 1) return setDone({ ...done, left: done.left - 1 });
+      setDone(null);
+      apiPost("/auth/logout")
+        .catch(() => {})
+        .finally(() => {
+          qc.clear(); // drop this person's cached data before the next one signs in
+          router.replace("/pin");
+        });
+    }, 1000);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, [done, qc, router]);
 
   const status = useClockStatus(!!session);
   const ctx = useClockContext(!!session);
@@ -143,21 +174,23 @@ export default function ClockPage() {
   const overrun = !!breakEndsAt && Date.now() > +breakEndsAt;
   const overrunMin = overrun ? Math.floor((Date.now() - +breakEndsAt!) / 60_000) : 0;
 
-  // Offline queue: flush on mount + whenever connectivity returns.
+  // Offline queue: flush on mount + whenever connectivity returns. Only the
+  // signed-in person's own punches — a shared kiosk holds several people's.
   useEffect(() => {
+    if (!me) return setQueue([]);
     const flush = () =>
-      flushQueue().then((n) => {
-        setQueue(queuedPunches());
+      flushQueue(me).then((n) => {
+        setQueue(queuedPunches(me));
         if (n > 0) {
           toast.success(t("clock.syncedPunches", { n }));
           qc.invalidateQueries({ queryKey: ["clock-status"] });
         }
       });
-    setQueue(queuedPunches());
+    setQueue(queuedPunches(me));
     flush();
     window.addEventListener("online", flush);
     return () => window.removeEventListener("online", flush);
-  }, [qc, t]);
+  }, [qc, t, me]);
 
   const act = (path: string, data?: Record<string, unknown>): Promise<ActResult> =>
     apiPost<ActResult>(path, data)
@@ -169,8 +202,8 @@ export default function ClockPage() {
       .catch((e) => {
         // Network down: queue clock in/out punches for replay (P12).
         if (isNetworkError(e) && (path === "/clock/in" || path === "/clock/out")) {
-          enqueuePunch(path, data ?? {});
-          setQueue(queuedPunches());
+          enqueuePunch(me, path, data ?? {});
+          setQueue(queuedPunches(me));
           toast.info(t("clock.offlineQueued"));
           return { queued: true };
         }
@@ -191,6 +224,7 @@ export default function ClockPage() {
     },
     onSuccess: (r) => {
       if (!r.queued) toast.success(t("toast.clockedIn"));
+      finish("in");
     },
   });
   const clockOut = useMutation({
@@ -206,16 +240,23 @@ export default function ClockPage() {
           );
         }
       }),
+    onSuccess: () => finish("out"),
   });
   // NZ break semantics (matches the compliance engine): 10-min rest breaks are
   // PAID, the meal break is UNPAID. Employees pick which they're taking.
   const breakStart = useMutation({
     mutationFn: (paid: boolean) => act("/clock/break/start", { paid }),
-    onSuccess: () => toast.success(t("toast.breakStarted")),
+    onSuccess: () => {
+      toast.success(t("toast.breakStarted"));
+      finish("breakStart");
+    },
   });
   const breakEnd = useMutation({
     mutationFn: () => act("/clock/break/end"),
-    onSuccess: () => toast.success(t("toast.breakEnded")),
+    onSuccess: () => {
+      toast.success(t("toast.breakEnded"));
+      finish("breakEnd");
+    },
   });
   const switchJob = useMutation({
     mutationFn: (id: string) => act("/clock/switch-job", { jobId: id }),
@@ -493,6 +534,26 @@ export default function ClockPage() {
           {t("clock.offlinePending", { n: queued })}
           {lastQueued && <> · {loc.time(lastQueued.queuedAt)}</>}
         </div>
+      )}
+
+      {/* Kiosk auto sign-out: covers the screen so the cancelling tap can't hit a button. */}
+      {done && (
+        <button
+          type="button"
+          onClick={() => setDone(null)}
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background/95 p-6 text-center"
+        >
+          <span className="text-3xl font-semibold">
+            {{
+              in: t("clock.clockedIn"),
+              out: t("clock.clockedOut"),
+              breakStart: t("toast.breakStarted"),
+              breakEnd: t("toast.breakEnded"),
+            }[done.kind]}{" "}
+            · {t("clock.todayTotal", { total: fmtHm(t, todayMin) })}
+          </span>
+          <span className="text-base text-muted-foreground">{t("kiosk.signingOut", { n: done.left })}</span>
+        </button>
       )}
 
       {/* Clock-out would trigger the auto-deducted meal break: say so first. */}

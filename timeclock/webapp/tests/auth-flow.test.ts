@@ -100,6 +100,9 @@ run("P2 auth flow (real Postgres)", () => {
     expect(body.employees).toHaveLength(2); // admin (no PIN) + Stew
     const stew = body.employees.find((e: { displayName: string }) => e.displayName === "Stew");
     expect(stew.hasPin).toBe(true);
+    expect(stew.clockedIn).toBe(false);
+    // Unauthenticated grid: name / avatar id / PIN-set / in — nothing else.
+    expect(Object.keys(stew).sort()).toEqual(["clockedIn", "displayName", "hasPin", "id"]);
     const rest = body.employees.filter((e: { hasPin: boolean }) => !e.hasPin);
     expect(rest).toHaveLength(1);
   });
@@ -159,6 +162,7 @@ run("P2 auth flow (real Postgres)", () => {
         body: JSON.stringify({ employeeId, pin: "0000" }),
       });
       expect(res.status).toBe(401);
+      expect((await res.json()).attemptsLeft).toBe(4 - i);
     }
     const locked = await app.request("/api/auth/pin-login", {
       method: "POST",

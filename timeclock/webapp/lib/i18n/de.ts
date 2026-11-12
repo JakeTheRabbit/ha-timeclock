@@ -437,6 +437,12 @@ const de: Partial<Record<keyof typeof import("./en").en, string>> = {
 
 
   // ==== batch3:KIOSK — add this area's keys directly below ====
+  "pinPad.backspace": "Letzte Ziffer löschen (halten zum Leeren)",
+  "pin.wrongPinLeft": "Falscher PIN — noch {n} Versuche",
+  "pin.wrongPinLocked": "Falscher PIN — zu viele Versuche, warte eine Minute",
+  "pin.search": "Namen suchen",
+  "pin.noMatch": "Niemand passt zu „{q}“",
+  "kiosk.signingOut": "Abmeldung in {n} s — tippen zum Bleiben",
 
 
   // ==== batch3:INSIGHTS_AUDIT — add this area's keys directly below ====

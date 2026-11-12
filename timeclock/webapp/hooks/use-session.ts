@@ -10,7 +10,7 @@ export interface SessionEmployee {
 }
 
 interface SessionResponse {
-  session: { id: string; expiresAt: string; employee: SessionEmployee } | null;
+  session: { id: string; expiresAt: string; kiosk?: boolean; employee: SessionEmployee } | null;
 }
 
 export function useSession() {
