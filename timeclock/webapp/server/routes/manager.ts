@@ -7,7 +7,6 @@ import {
   breaks,
   employees,
   payPeriods,
-  auditLog,
   dayApprovals,
   modifications,
   corrections,
@@ -17,6 +16,7 @@ import type { AppEnv } from "@/server/context";
 import { requireRole, roleAtLeast } from "@/server/auth/rbac";
 import { insightsSlice } from "@/server/domain/insights";
 import { appendAudit } from "@/server/domain/audit/writer";
+import { auditPage } from "@/server/domain/audit/viewer";
 import { ensurePeriodContaining } from "@/server/domain/payperiod/periods";
 import { buildTimesheet } from "@/server/domain/payperiod/timesheet";
 import { nzDateOf } from "@/server/domain/holidays/stat-pay";
@@ -327,36 +327,25 @@ export const manager = new Hono<AppEnv>()
       .object({
         entityType: z.string().optional(),
         entityId: z.string().optional(),
+        employeeId: z.string().uuid().optional(),
+        from: z.coerce.date().optional(),
+        to: z.coerce.date().optional(),
+        q: z.string().trim().max(100).optional(),
+        before: z.coerce.number().int().positive().optional(),
         limit: z.coerce.number().int().min(1).max(500).default(100),
       })
-      .parse({
-        entityType: c.req.query("entityType"),
-        entityId: c.req.query("entityId"),
+      .safeParse({
+        entityType: c.req.query("entityType") || undefined,
+        entityId: c.req.query("entityId") || undefined,
+        employeeId: c.req.query("employeeId") || undefined,
+        from: c.req.query("from") || undefined,
+        to: c.req.query("to") || undefined,
+        q: c.req.query("q") || undefined,
+        before: c.req.query("before") || undefined,
         limit: c.req.query("limit"),
       });
-
-    const conds = [];
-    if (q.entityType) conds.push(eq(auditLog.entityType, q.entityType));
-    if (q.entityId) conds.push(eq(auditLog.entityId, q.entityId));
-
-    const rows = await getDb()
-      .select({
-        id: auditLog.id,
-        createdAt: auditLog.createdAt,
-        entityType: auditLog.entityType,
-        entityId: auditLog.entityId,
-        action: auditLog.action,
-        actorId: auditLog.actorId,
-        reason: auditLog.reason,
-        oldValue: auditLog.oldValue,
-        newValue: auditLog.newValue,
-        hash: auditLog.hash,
-      })
-      .from(auditLog)
-      .where(conds.length ? and(...conds) : undefined)
-      .orderBy(desc(auditLog.id))
-      .limit(q.limit);
-    return c.json({ rows });
+    if (!q.success) return c.json({ error: "bad_request" }, 400);
+    return c.json(await auditPage(q.data));
   })
 
   // Chain integrity, on demand (surfaced in the audit viewer header).

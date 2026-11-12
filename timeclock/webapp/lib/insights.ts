@@ -36,7 +36,9 @@ export interface SliceActivity {
   action: string;
   entityType: string;
   actor: string;
+  actorId?: string | null;
   subject: string | null;
+  subjectId?: string | null;
   reason: string | null;
 }
 export interface Slice {
@@ -201,8 +203,30 @@ export const hhmm = (min: number | null) =>
 
 export const hours = (min: number | null) => (min == null ? "—" : `${(min / 60).toFixed(2)}h`);
 
-export const money = (cents: number | null | undefined) =>
-  cents == null ? "—" : new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" }).format(cents / 100);
+/** Change vs the previous period: whole-number % and direction; null when there's no base to compare. */
+export function delta(cur: number | null, prev: number | null): { pct: number; dir: "up" | "down" | "flat" } | null {
+  if (cur == null || prev == null || prev === 0) return null;
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  return { pct: Math.abs(pct), dir: pct > 0 ? "up" : pct < 0 ? "down" : "flat" };
+}
+
+/** The slice narrowed to one person (entries, rosters, and activity they did or that concerns them). */
+export function filterSlice(slice: Slice, employeeId: string | null): Slice {
+  if (!employeeId) return slice;
+  return {
+    ...slice,
+    entries: slice.entries.filter((e) => e.employeeId === employeeId),
+    rosters: slice.rosters.filter((r) => r.employeeId === employeeId),
+    activity: slice.activity.filter((a) => a.actorId === employeeId || a.subjectId === employeeId),
+  };
+}
+
+/** First day (YYYY-MM-DD) of the week holding `day`; weekStart 0 = Sun, 1 = Mon. */
+export function weekStartOf(day: string, weekStart: 0 | 1): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - weekStart + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
 
 /** Human line for an audit action in the activity feed. */
 export function describeActivity(a: SliceActivity): string {

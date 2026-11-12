@@ -1041,7 +1041,9 @@ function handle(req: Req): { status: number; body: Json } {
           action: a.action,
           entityType: a.entityType,
           actor: a.actorId ? empName(a.actorId) : "system",
+          actorId: a.actorId,
           subject: null,
+          subjectId: null,
           reason: a.reason,
         })),
       withPay: true,
@@ -1158,10 +1160,52 @@ function handle(req: Req): { status: number; body: Json } {
   }
   if (seg === "/manager/audit/verify") return ok({ ok: true, broken_at: null, detail: "chain intact (demo)" });
   if (seg === "/manager/audit") {
-    const entityType = req.query.get("entityType");
-    let rows = state.audit;
-    if (entityType) rows = rows.filter((r) => r.entityType === entityType);
-    return ok({ rows: rows.slice(0, 200) });
+    const p = (k: string) => req.query.get(k) || null;
+    const limit = Number(p("limit") ?? 100);
+    const subject = (a: DemoAudit): { id: string | null; day: string | null } => {
+      const entry = (id: string) => state.entries.find((e) => e.id === id);
+      const fromEntry = (e: DemoEntry | undefined) => ({ id: e?.employeeId ?? null, day: e ? dayStr(new Date(e.clockIn)) : null });
+      if (a.entityType === "time_entry") return fromEntry(entry(a.entityId));
+      if (a.entityType === "correction") {
+        const c = state.corrections.find((x) => x.id === a.entityId);
+        return c ? fromEntry(entry(c.entryId)) : { id: null, day: null };
+      }
+      if (a.entityType === "employee") return { id: a.entityId, day: null };
+      if (a.entityType === "leave_request") return { id: state.leave.find((l) => l.id === a.entityId)?.employeeId ?? null, day: null };
+      if (a.entityType === "roster") {
+        const s = state.shifts.find((x) => x.id === a.entityId);
+        return { id: s?.employeeId ?? null, day: s?.shiftDate ?? null };
+      }
+      return { id: null, day: null };
+    };
+    const needle = p("q")?.toLowerCase();
+    const from = p("from") ? new Date(p("from")!) : null;
+    const to = p("to") ? new Date(p("to")!) : null;
+    const before = p("before") ? Number(p("before")) : null;
+    const rows = state.audit
+      .map((a) => {
+        const s = subject(a);
+        return {
+          ...a,
+          actorName: a.actorId ? empName(a.actorId) : null,
+          subjectId: s.id,
+          subjectName: s.id ? empName(s.id) : null,
+          day: s.day,
+        };
+      })
+      .filter(
+        (r) =>
+          (!p("entityType") || r.entityType === p("entityType")) &&
+          (!p("entityId") || r.entityId === p("entityId")) &&
+          (!p("employeeId") || r.subjectId === p("employeeId") || r.actorId === p("employeeId")) &&
+          (!from || new Date(r.createdAt) >= from) &&
+          (!to || new Date(r.createdAt) < to) &&
+          (before == null || r.id < before) &&
+          (!needle ||
+            [r.action, r.entityType, r.reason, r.actorName, r.subjectName].some((x) => x?.toLowerCase().includes(needle))),
+      );
+    const page = rows.slice(0, limit);
+    return ok({ rows: page, nextCursor: rows.length > limit ? page[page.length - 1].id : null });
   }
 
   // ---- admin -------------------------------------------------------------
