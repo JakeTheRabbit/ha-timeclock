@@ -1,24 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
   CalendarDays,
   ChartColumn,
   IdCard,
   KeyRound,
+  LogIn,
+  LogOut,
   Settings2,
   Timer,
   TreePalm,
+  TriangleAlert,
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiGet } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { apiErrorCode, apiErrorText } from "@/lib/api-errors";
+import { useLocale } from "@/lib/format";
+import { useLiveTimer } from "@/hooks/use-live-timer";
+import {
+  fmtH,
+  fmtHm,
+  liveTodayMin,
+  shiftWhen,
+  useClockContext,
+  useClockStatus,
+} from "@/hooks/use-clock-context";
+import { autoDeductMinutes } from "@/server/domain/time/breaks";
+
+const HM = { hour: "2-digit", minute: "2-digit" } as const;
 import { cn } from "@/lib/utils";
 import { useSession } from "@/hooks/use-session";
 import { roleAtLeast } from "@/server/auth/rbac";
@@ -68,6 +87,153 @@ function Tile({
   );
 }
 
+/** Live status: clock state + one-tap punch, today/week vs usual, next shift, nudges. */
+function StatusCard() {
+  const qc = useQueryClient();
+  const t = useT();
+  const loc = useLocale();
+  const status = useClockStatus(true);
+  const ctx = useClockContext(true);
+  const disputes = useQuery({
+    queryKey: ["my-disputes"],
+    queryFn: () => apiGet<{ modifications: { day: string }[] }>("/review/mine/disputes"),
+  });
+  const leave = useQuery({
+    queryKey: ["leave-mine"],
+    queryFn: () => apiGet<{ requests: { status: string }[] }>("/leave/mine"),
+  });
+
+  const s = status.data;
+  const open = s?.open ?? null;
+  const since = open?.shiftStart ?? open?.clockIn ?? null;
+  const timer = useLiveTimer(since);
+  const todayMin = liveTodayMin(s, status.dataUpdatedAt);
+  const disputedDays = new Set(disputes.data?.modifications.map((m) => m.day)).size;
+  const pendingLeave = leave.data?.requests.filter((r) => r.status === "pending").length ?? 0;
+
+  // Anything needing more than a tap (photo, location, a break, the meal-deduct
+  // warning) goes to the clock screen instead.
+  const deduct =
+    open && s?.breakRule
+      ? autoDeductMinutes((Date.now() - +new Date(open.clockIn)) / 60_000, open.unpaidBreakMin, s.breakRule)
+      : 0;
+  const needsClockScreen = open ? !!open.onBreak || deduct > 0 : !!(s?.requires?.geo || s?.requires?.photo);
+
+  const punch = useMutation({
+    mutationFn: () =>
+      open ? apiPost<{ workedMinutes?: number }>("/clock/out") : apiPost("/clock/in", { jobId: ctx.likelyJobId }),
+    onSuccess: (r) => {
+      const worked = (r as { workedMinutes?: number } | undefined)?.workedMinutes;
+      toast.success(
+        open ? t("toast.worked", { hours: ((worked ?? 0) / 60).toFixed(2) }) : t("toast.clockedIn"),
+      );
+      qc.invalidateQueries({ queryKey: ["clock-status"] });
+      qc.invalidateQueries({ queryKey: ["clock-context-entries"] });
+    },
+    onError: (e) =>
+      toast.error(apiErrorCode(e) === "just_clocked_out" ? t("clock.justClockedOut") : apiErrorText(e, t)),
+  });
+
+  if (status.isLoading) return <Skeleton className="h-44 rounded-xl" />;
+
+  const Icon = open ? LogOut : LogIn;
+  const label = open ? t("clock.clockOut") : t("clock.clockIn");
+  const btnClass = "h-14 w-full rounded-xl text-lg font-semibold sm:w-48";
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <Badge variant={open ? "default" : "secondary"}>
+              {!open
+                ? t("clock.clockedOut")
+                : !open.onBreak
+                  ? t("clock.clockedIn")
+                  : open.onBreak.paid
+                    ? t("clock.onBreakPaid")
+                    : t("clock.onBreakUnpaid")}
+            </Badge>
+            {open ? (
+              <>
+                <div className="font-mono text-4xl tabular-nums">{timer}</div>
+                <div className="text-sm text-muted-foreground">
+                  {t("clock.since", { time: loc.time(since!, HM) })}
+                  {open.job && <> · {t("clock.jobLabel", { name: open.job.name })}</>}
+                </div>
+              </>
+            ) : (
+              ctx.lastOut && (
+                <div className="text-sm text-muted-foreground">
+                  {t("clock.lastOut", { time: loc.dateTime(ctx.lastOut, { weekday: "short", ...HM }) })}
+                </div>
+              )
+            )}
+          </div>
+          {needsClockScreen ? (
+            <Button asChild size="lg" variant={open ? "destructive" : "default"} className={btnClass}>
+              <Link href="/clock">
+                <Icon aria-hidden="true" /> {open?.onBreak ? t("home.status.openClock") : label}
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              variant={open ? "destructive" : "default"}
+              disabled={punch.isPending}
+              onClick={() => punch.mutate()}
+              className={btnClass}
+            >
+              <Icon aria-hidden="true" /> {label}
+            </Button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-sm">
+          <div>
+            <div className="text-muted-foreground">{t("home.status.today")}</div>
+            <div className="font-semibold tabular-nums">{fmtHm(t, todayMin)}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("home.status.week")}</div>
+            <div className="font-semibold tabular-nums">{fmtH(t, loc, ctx.weekMin)}</div>
+            {ctx.usualWeekMin != null && (
+              <div className="text-xs text-muted-foreground">
+                {t("home.status.ofUsual", { usual: fmtH(t, loc, ctx.usualWeekMin) })}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("home.status.nextShift")}</div>
+            <Link href="/roster" className="font-semibold hover:underline">
+              {ctx.next ? shiftWhen(t, loc, ctx.next) : t("home.status.noShift")}
+            </Link>
+          </div>
+        </div>
+
+        {disputedDays > 0 && (
+          <Link
+            href="/my-hours"
+            className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300 hover:bg-amber-500/20"
+          >
+            <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
+            {t("home.status.disputes", { n: disputedDays })}
+          </Link>
+        )}
+        {pendingLeave > 0 && (
+          <Link
+            href="/leave"
+            className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-accent"
+          >
+            <TreePalm className="size-4 shrink-0" aria-hidden="true" />
+            {t("home.status.pendingLeave", { n: pendingLeave })}
+          </Link>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Home() {
   // useSession performs HA SSO server-side: an HA account linked to an
   // employee is signed in the moment this page loads, on any device.
@@ -82,6 +248,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+      {session && <StatusCard />}
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3">
           <Skeleton className="col-span-2 h-28 rounded-xl" />

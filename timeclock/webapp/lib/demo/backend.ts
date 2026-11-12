@@ -15,6 +15,7 @@
  */
 
 import { tzOffset, APP_TZ } from "@/lib/tz";
+import { todayWork } from "@/lib/clock-context";
 
 type Json = Record<string, unknown>;
 
@@ -537,16 +538,29 @@ function handle(req: Req): { status: number; body: Json } {
   // ---- clock -------------------------------------------------------------
   if (seg === "/clock/status") {
     const e = openEntry(me().id);
-    if (!e) return ok({ open: null });
+    const now = new Date();
+    const mine = state.entries.filter((x) => x.employeeId === me().id);
+    const day = todayWork(mine, entryBreaks, e?.id ?? null, facDay(iso(now)), (d) => facDay(iso(d)), now);
+    const base = {
+      requires: { geo: false, photo: false },
+      breakRule: { autoDeductAfterMin: 360, autoDeductMin: 30 },
+      todayWorkedMin: day.todayWorkedMin,
+    };
+    if (!e) return ok({ open: null, ...base });
     const ob = openBreak(e.id);
     return ok({
       open: {
         entryId: e.id,
         clockIn: e.clockIn,
+        shiftStart: day.shiftStart ?? e.clockIn,
         job: e.jobId ? { id: e.jobId, name: jobName(e.jobId)! } : null,
         onBreak: ob ? { breakId: ob.id, startAt: ob.startAt, paid: ob.paid } : null,
-        unpaidBreakMin: Math.round(unpaidBreakMin(e.id, new Date())),
+        unpaidBreakMin: Math.round(unpaidBreakMin(e.id, now)),
+        breaks: state.breaks
+          .filter((b) => day.chainIds.includes(b.timeEntryId))
+          .map((b) => ({ startAt: b.startAt, endAt: b.endAt, paid: b.paid, autoDeducted: b.autoDeducted })),
       },
+      ...base,
     });
   }
   if (seg === "/clock/jobs") {

@@ -15,6 +15,8 @@ import { schedulePush } from "@/server/integrations/ha/state-push";
 import { doorAccessFlag } from "@/server/domain/antifraud/door-access";
 import { notify } from "@/server/integrations/notify";
 import { APP_TZ } from "@/lib/tz";
+import { todayWork } from "@/lib/clock-context";
+import { dayOf } from "@/server/domain/time/day-review";
 
 const REPUNCH_COOLDOWN_MS = 60_000;
 
@@ -59,15 +61,28 @@ export const clock = new Hono<AppEnv>()
   .get("/status", async (c) => {
     const me = c.get("auth")!.employee;
     // What a punch must carry, so the screen can gather it up front.
-    const { antifraud } = await getSettings();
+    const { antifraud, breaks: breakRule } = await getSettings();
     const requires = { geo: antifraud.geofence.enabled, photo: antifraud.photoOnPunch };
     const entry = await openEntryFor(me.id);
-    if (!entry) return c.json({ open: null, requires });
 
+    // Today's total + the back-to-back run (job switches) ending at the open entry.
     const db = getDb();
-    const entryBreaks = await db.query.breaks.findMany({
-      where: (b, { eq: eq_ }) => eq_(b.timeEntryId, entry.id),
+    const now = new Date();
+    const recent = await db.query.timeEntries.findMany({
+      where: (t, { eq: eq_, and: and_, gte: gte_ }) =>
+        and_(eq_(t.employeeId, me.id), gte_(t.clockIn, new Date(now.getTime() - 36 * 3600_000))),
     });
+    const recentBreaks = recent.length
+      ? await db.query.breaks.findMany({
+          where: (b, { inArray: inArray_ }) => inArray_(b.timeEntryId, recent.map((e) => e.id)),
+        })
+      : [];
+    const breaksOf = (id: string) => recentBreaks.filter((b) => b.timeEntryId === id);
+    const day = todayWork(recent, breaksOf, entry?.id ?? null, dayOf(now), dayOf, now);
+    const base = { requires, breakRule, todayWorkedMin: day.todayWorkedMin };
+    if (!entry) return c.json({ open: null, ...base });
+
+    const entryBreaks = breaksOf(entry.id);
     const job = entry.jobId
       ? await db.query.jobs.findFirst({ where: (j, { eq: eq_ }) => eq_(j.id, entry.jobId!) })
       : null;
@@ -77,13 +92,18 @@ export const clock = new Hono<AppEnv>()
       open: {
         entryId: entry.id,
         clockIn: entry.clockIn,
+        shiftStart: day.shiftStart ?? entry.clockIn.toISOString(),
         job: job ? { id: job.id, name: job.name } : null,
         onBreak: onBreak
           ? { breakId: onBreak.id, startAt: onBreak.startAt, paid: onBreak.paid }
           : null,
-        unpaidBreakMin: unpaidBreakMinutes(entryBreaks, new Date()),
+        unpaidBreakMin: unpaidBreakMinutes(entryBreaks, now),
+        // Every break since shiftStart (rest/meal progress across job switches).
+        breaks: recentBreaks
+          .filter((b) => day.chainIds.includes(b.timeEntryId))
+          .map((b) => ({ startAt: b.startAt, endAt: b.endAt, paid: b.paid, autoDeducted: b.autoDeducted })),
       },
-      requires,
+      ...base,
     });
   })
 

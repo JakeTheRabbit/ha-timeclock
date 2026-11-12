@@ -24,18 +24,29 @@ import { useLiveTimer } from "@/hooks/use-live-timer";
 import { enqueuePunch, flushQueue, queuedPunches, isNetworkError, type QueuedPunch } from "@/lib/offline-queue";
 import { useT } from "@/lib/i18n";
 import { useLocale } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  fmtH,
+  fmtHm,
+  liveTodayMin,
+  shiftWhen,
+  useClockContext,
+  useClockStatus,
+  type ClockStatus as Status,
+} from "@/hooks/use-clock-context";
+import { breakLengthMin, breakProgress } from "@/lib/clock-context";
+import { autoDeductMinutes } from "@/server/domain/time/breaks";
 
-interface Status {
-  open: {
-    entryId: string;
-    clockIn: string;
-    job: { id: string; name: string } | null;
-    onBreak: { breakId: string; startAt: string; paid: boolean } | null;
-    unpaidBreakMin: number;
-  } | null;
-  /** What a clock-in must carry (geofence / photo-on-punch settings). */
-  requires?: { geo: boolean; photo: boolean };
-}
+const HM = { hour: "2-digit", minute: "2-digit" } as const;
+
 interface Jobs {
   jobs: { id: string; name: string; code: string | null }[];
 }
@@ -82,18 +93,22 @@ export default function ClockPage() {
   const loc = useLocale();
   const t = useT();
   const [jobId, setJobId] = useState<string>("");
+  const [jobTouched, setJobTouched] = useState(false);
+  const [confirmOut, setConfirmOut] = useState(0); // minutes auto-deduct would take; 0 = closed
 
-  const status = useQuery({
-    queryKey: ["clock-status"],
-    queryFn: () => apiGet<Status>("/clock/status"),
-    enabled: !!session,
-    refetchInterval: 30_000,
-  });
+  const status = useClockStatus(!!session);
+  const ctx = useClockContext(!!session);
   const jobList = useQuery({
     queryKey: ["clock-jobs"],
     queryFn: () => apiGet<Jobs>("/clock/jobs"),
     enabled: !!session,
   });
+
+  // Prefill the job from the rostered shift (current/next), else the last entry.
+  useEffect(() => {
+    if (jobTouched || !ctx.likelyJobId || !jobList.data) return;
+    if (jobList.data.jobs.some((j) => j.id === ctx.likelyJobId)) setJobId(ctx.likelyJobId);
+  }, [jobTouched, ctx.likelyJobId, jobList.data]);
 
   const [queue, setQueue] = useState<QueuedPunch[]>([]);
   const queued = queue.length;
@@ -111,8 +126,22 @@ export default function ClockPage() {
       (pendingIn
         ? { entryId: "", clockIn: lastQueued!.queuedAt, job: null, onBreak: null, unpaidBreakMin: 0 }
         : null));
-  const timer = useLiveTimer(open?.clockIn ?? null);
+  const since = open?.shiftStart ?? open?.clockIn ?? null;
+  const timer = useLiveTimer(since);
   const breakTimer = useLiveTimer(open?.onBreak?.startAt ?? null);
+  const todayMin = liveTodayMin(status.data, status.dataUpdatedAt);
+  const mealMin = status.data?.breakRule?.autoDeductMin ?? 30;
+
+  // Rest/meal entitlement for the shift as expected (rostered / usual / so far).
+  const chainBreaks = open?.breaks ?? [];
+  const elapsedMin = since ? (Date.now() - +new Date(since)) / 60_000 : 0;
+  const shiftLen = ctx.next?.current ? (+ctx.next.end - +ctx.next.start) / 60_000 : 0;
+  const progress = breakProgress(Math.max(elapsedMin, shiftLen, ctx.usualDayMin ?? 0), chainBreaks);
+  const breakEndsAt = open?.onBreak
+    ? new Date(+new Date(open.onBreak.startAt) + breakLengthMin(open.onBreak.paid, mealMin) * 60_000)
+    : null;
+  const overrun = !!breakEndsAt && Date.now() > +breakEndsAt;
+  const overrunMin = overrun ? Math.floor((Date.now() - +breakEndsAt!) / 60_000) : 0;
 
   // Offline queue: flush on mount + whenever connectivity returns.
   useEffect(() => {
@@ -134,6 +163,7 @@ export default function ClockPage() {
     apiPost<ActResult>(path, data)
       .then((r) => {
         qc.invalidateQueries({ queryKey: ["clock-status"] });
+        qc.invalidateQueries({ queryKey: ["clock-context-entries"] });
         return r ?? {};
       })
       .catch((e) => {
@@ -195,6 +225,17 @@ export default function ClockPage() {
   // Photo-on-punch: the camera has to open from the tap itself.
   const startClockIn = () => (requires?.photo ? photoInput.current?.click() : clockIn.mutate(undefined));
 
+  // Same rule the server applies at clock-out (current entry's span + unpaid breaks).
+  const startClockOut = () => {
+    const rule = status.data?.breakRule;
+    const deduct =
+      serverOpen && rule
+        ? autoDeductMinutes((Date.now() - +new Date(serverOpen.clockIn)) / 60_000, serverOpen.unpaidBreakMin, rule)
+        : 0;
+    if (deduct > 0) setConfirmOut(deduct);
+    else clockOut.mutate();
+  };
+
   const busy =
     locating ||
     clockIn.isPending ||
@@ -238,9 +279,13 @@ export default function ClockPage() {
             </Badge>
             <div className="font-mono text-6xl tabular-nums sm:text-7xl">{timer}</div>
             <div className="text-sm text-muted-foreground">
-              {t("clock.since", {
-                time: loc.time(open.clockIn, { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-              })}
+              {t("clock.since", { time: loc.time(since!, HM) })}
+              {status.data?.todayWorkedMin != null && (
+                <>
+                  {" "}
+                  · <span className="text-foreground">{t("clock.todayTotal", { total: fmtHm(t, todayMin) })}</span>
+                </>
+              )}
               {open.job ? (
                 <>
                   {" "}
@@ -251,14 +296,50 @@ export default function ClockPage() {
                 <> · {t("clock.breakTaken", { n: open.unpaidBreakMin })}</>
               ) : null}
             </div>
+            {!open.onBreak && (progress.restDue > 0 || progress.mealDue) && (
+              <div className="flex gap-2 text-sm">
+                {progress.restDue > 0 && (
+                  <Badge variant={progress.restTaken >= progress.restDue ? "secondary" : "outline"}>
+                    <Coffee aria-hidden="true" />
+                    {t("clock.restProgress", { taken: progress.restTaken, due: progress.restDue })}
+                  </Badge>
+                )}
+                {progress.mealDue && (
+                  <Badge variant={progress.mealTaken ? "secondary" : "outline"}>
+                    <UtensilsCrossed aria-hidden="true" />
+                    {progress.mealTaken ? t("clock.mealTaken") : t("clock.mealDue")}
+                  </Badge>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <>
             <Badge variant="secondary" className="px-3 py-1 text-sm">
               {pendingOut ? t("clock.clockedOutPendingSync") : t("clock.clockedOut")}
             </Badge>
-            <div className="font-mono text-6xl text-muted-foreground/40 tabular-nums sm:text-7xl">
-              0:00:00
+            {/* Context instead of a dead 0:00:00: last out, today, week vs usual, next shift. */}
+            <div className="flex flex-col gap-1 text-base text-muted-foreground">
+              <div>
+                {[
+                  ctx.lastOut && t("clock.lastOut", { time: loc.time(ctx.lastOut, HM) }),
+                  status.data?.todayWorkedMin != null &&
+                    t("clock.todayTotal", { total: fmtHm(t, status.data.todayWorkedMin) }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+              <div>
+                {[
+                  ctx.ready &&
+                    (ctx.usualWeekMin
+                      ? t("clock.weekVsUsual", { week: fmtH(t, loc, ctx.weekMin), usual: fmtH(t, loc, ctx.usualWeekMin) })
+                      : t("clock.weekTotal", { week: fmtH(t, loc, ctx.weekMin) })),
+                  ctx.next && t("clock.nextShift", { when: shiftWhen(t, loc, ctx.next) }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
             </div>
           </>
         )}
@@ -267,16 +348,31 @@ export default function ClockPage() {
       {open ? (
         open.onBreak ? (
           /* On break: end break is the only action (matches previous behavior). */
-          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-6 py-5">
-            <div className="flex items-center gap-2 text-amber-300">
+          /* Amber once the break runs past its expected end. */
+          <div
+            className={cn(
+              "flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border px-6 py-5",
+              overrun ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-card",
+            )}
+          >
+            <div className={cn("flex items-center gap-2", overrun && "text-amber-300")}>
               <Coffee className="size-5" aria-hidden="true" />
               {open.onBreak.paid ? t("clock.onBreakPaid") : t("clock.onBreakUnpaid")} ·{" "}
               <span className="font-mono tabular-nums">{breakTimer}</span>
             </div>
+            {breakEndsAt && (
+              <div className={cn("text-sm", overrun ? "font-medium text-amber-300" : "text-muted-foreground")}>
+                {t(open.onBreak.paid ? "clock.restEnds" : "clock.mealEnds", { time: loc.time(breakEndsAt, HM) })}
+                {overrun && <> · {t("clock.breakOverrun", { n: overrunMin })}</>}
+              </div>
+            )}
             <Button
               disabled={busy}
               onClick={() => breakEnd.mutate()}
-              className="h-16 w-full rounded-xl bg-amber-500 text-xl font-semibold text-amber-950 hover:bg-amber-400 active:bg-amber-400/90"
+              className={cn(
+                "h-16 w-full rounded-xl text-xl font-semibold",
+                overrun && "bg-amber-500 text-amber-950 hover:bg-amber-400 active:bg-amber-400/90",
+              )}
             >
               {t("clock.endBreak")}
             </Button>
@@ -287,7 +383,7 @@ export default function ClockPage() {
             <Button
               variant="destructive"
               disabled={busy}
-              onClick={() => clockOut.mutate()}
+              onClick={startClockOut}
               className="h-20 w-full rounded-xl text-2xl font-semibold"
             >
               <LogOut className="size-7" aria-hidden="true" /> {t("clock.clockOut")}
@@ -343,7 +439,10 @@ export default function ClockPage() {
             <Select
               disabled={busy}
               value={jobId === "" ? NO_JOB : jobId}
-              onValueChange={(v) => setJobId(v === NO_JOB ? "" : v)}
+              onValueChange={(v) => {
+                setJobTouched(true);
+                setJobId(v === NO_JOB ? "" : v);
+              }}
             >
               <SelectTrigger aria-label={t("clock.job")} className="h-14 min-h-14 rounded-xl">
                 <Briefcase className="size-5 shrink-0" aria-hidden="true" />
@@ -395,6 +494,38 @@ export default function ClockPage() {
           {lastQueued && <> · {loc.time(lastQueued.queuedAt)}</>}
         </div>
       )}
+
+      {/* Clock-out would trigger the auto-deducted meal break: say so first. */}
+      <Dialog open={confirmOut > 0} onOpenChange={(o) => !o && setConfirmOut(0)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("clock.noMealTitle")}</DialogTitle>
+            <DialogDescription>{t("clock.noMealBody", { n: confirmOut })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setConfirmOut(0);
+                breakStart.mutate(false);
+              }}
+            >
+              <UtensilsCrossed aria-hidden="true" /> {t("clock.takeMealNow")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                setConfirmOut(0);
+                clockOut.mutate();
+              }}
+            >
+              <LogOut aria-hidden="true" /> {t("clock.outAnyway")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
