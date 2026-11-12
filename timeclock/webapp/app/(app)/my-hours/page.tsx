@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CircleCheck, MessageCircleQuestion, Pencil, Plus, Send } from "lucide-react";
@@ -16,7 +16,7 @@ import {
   typicalFrom,
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
-import { HourDots, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
+import { HourDots, liveMinutes, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
@@ -58,7 +58,17 @@ function Container({ children }: { children: React.ReactNode }) {
 }
 
 /** A dispute from the manager, with the conversation and a reply box. */
-function DisputeCard({ mod, myId, onSent }: { mod: ModRow; myId: string; onSent: () => void }) {
+function DisputeCard({
+  mod,
+  myId,
+  onSent,
+  onOpenDay,
+}: {
+  mod: ModRow;
+  myId: string;
+  onSent: () => void;
+  onOpenDay: (day: string) => void;
+}) {
   const t = useT();
   const loc = useLocale();
   const [text, setText] = useState("");
@@ -98,9 +108,14 @@ function DisputeCard({ mod, myId, onSent }: { mod: ModRow; myId: string; onSent:
         placeholder={t("myHours.replyPlaceholder")}
         className="min-h-14"
       />
-      <Button size="sm" className="self-end" disabled={!text.trim() || send.isPending} onClick={() => send.mutate()}>
-        <Send /> {t("myHours.send")}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="secondary" onClick={() => onOpenDay(mod.day)}>
+          <Pencil /> {t("myHours.openDay")}
+        </Button>
+        <Button size="sm" className="ml-auto" disabled={!text.trim() || send.isPending} onClick={() => send.mutate()}>
+          <Send /> {t("myHours.send")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -154,6 +169,21 @@ export default function MyHoursPage() {
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([day, es]) => ({ day, entries: es.sort((a, b) => +new Date(a.clockIn) - +new Date(b.clockIn)) }));
   }, [entries]);
+  // "Open this day" from a dispute: jump the calendar there, then open the
+  // editor once that month's entries are in.
+  const [editOnLoad, setEditOnLoad] = useState<string | null>(null);
+  const openDay = (day: string) => {
+    setSelected(day);
+    setMonth(monthStart(new Date(`${day}T12:00:00`)));
+    setEditOnLoad(day);
+  };
+  useEffect(() => {
+    if (!editOnLoad || !list.data || list.isFetching) return;
+    const es = days.find((d) => d.day === editOnLoad)?.entries ?? [];
+    setEditing(es.length ? { day: editOnLoad, focusId: es[0].id } : { day: editOnLoad, addNew: true });
+    setEditOnLoad(null);
+  }, [editOnLoad, list.data, list.isFetching, days]);
+
   const pendingByDay = useMemo(() => {
     const m = new Map<string, number>();
     for (const x of review.data?.modifications ?? []) if (x.status === "pending") m.set(x.day, (m.get(x.day) ?? 0) + 1);
@@ -194,7 +224,7 @@ export default function MyHoursPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {disputes.data!.modifications.map((m) => (
-              <DisputeCard key={m.id} mod={m} myId={session.employee.id} onSent={refresh} />
+              <DisputeCard key={m.id} mod={m} myId={session.employee.id} onSent={refresh} onOpenDay={openDay} />
             ))}
           </CardContent>
         </Card>
@@ -207,7 +237,7 @@ export default function MyHoursPage() {
         selected={selected}
         onSelect={setSelected}
         approvedDays={new Set(review.data?.approvedDays ?? [])}
-        flaggedDays={new Set(pendingByDay.keys())}
+        flaggedDays={new Set([...pendingByDay.keys(), ...(disputes.data?.modifications.map((m) => m.day) ?? [])])}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -247,7 +277,7 @@ export default function MyHoursPage() {
 
       {[...days.filter((d) => d.day === selected), ...days.filter((d) => d.day !== selected)].map(({ day, entries: es }) => {
         const approved = es.some((e) => e.dayApproved);
-        const dayMin = es.reduce((a, e) => a + (e.workedMinutes ?? 0), 0);
+        const dayMin = es.reduce((a, e) => a + liveMinutes(e), 0);
         const waiting = pendingByDay.get(day) ?? 0;
         return (
           <Card key={day} className={day === selected ? "border-primary/60" : undefined}>
@@ -275,7 +305,7 @@ export default function MyHoursPage() {
                 {es.map((e) => (
                   <div key={e.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
                     {fmtT(e.clockIn)} → {e.clockOut ? fmtT(e.clockOut) : t("myHours.breakOpen")}
-                    <span className="text-muted-foreground">{hrs(e.workedMinutes)}</span>
+                    <span className="text-muted-foreground">{hrs(liveMinutes(e))}</span>
                     <span className="font-sans text-xs text-muted-foreground">
                       {t("myHours.breaks", { value: breaksLabel(e, t) })}
                       {e.job && <> · {e.job.name}</>}

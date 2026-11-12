@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, Undo2 } from "lucide-react";
-import { api, apiPatch, apiPost, ApiError } from "@/lib/api-client";
+import { api, apiPatch, apiPost } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -40,10 +41,7 @@ export interface EntryRow {
 
 type TFn = (key: MessageKey, vars?: TVars) => string;
 
-export const errMsg = (e: unknown, t: TFn) =>
-  e instanceof ApiError
-    ? ((e.body as { error?: string })?.error ?? t("toast.errorStatus", { status: e.status }))
-    : t("toast.requestFailed");
+export const errMsg = (e: unknown, t: TFn) => apiErrorText(e, t);
 
 // <input type="datetime-local"> speaks browser-local wall time without zone.
 const toLocal = (iso: string | null) =>
@@ -149,6 +147,10 @@ function suggestBreak(d: EntryDraft): Pick<BreakDraft, "start" | "end" | "paid">
 
 export const apiDelete = <T,>(path: string, data: unknown) =>
   api<T>(path, { method: "DELETE", body: JSON.stringify(data) });
+// Unshadowed names for the write-counting wrappers in the save.
+const post = apiPost;
+const patch = apiPatch;
+const del = apiDelete;
 
 interface BreakDraft {
   key: string;
@@ -392,7 +394,8 @@ export function EditEntryDialog({
   });
   const [cin, setCin] = useState(focus ? toLocal(focus.clockIn) : "");
   const [cout, setCout] = useState(focus ? toLocal(focus.clockOut) : "");
-  const [reason, setReason] = useState("");
+  const [typed, setTyped] = useState<string | null>(null); // null = not touched
+  const wrote = useRef(0); // API writes that landed in the current save
 
   const setD = (key: string, patch: Partial<EntryDraft>) =>
     setDrafts((all) => all.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -413,10 +416,41 @@ export function EditEntryDialog({
 
   const problems = useMemo(() => findProblems(drafts, t), [drafts, t]);
 
+  // Likely reasons from what actually changed, most specific first.
+  const suggestions = useMemo(() => {
+    const s = new Set<MessageKey>();
+    const others = drafts.filter((d) => d.id && !d.removed).length;
+    for (const d of drafts.filter((x) => !x.ro)) {
+      if (d.removed) s.add("myHours.reason.mistake");
+      else if (!d.id) s.add(others > 0 ? "myHours.reason.leftSite" : "myHours.reason.forgotIn");
+      else if (d.src) {
+        if (d.src.clockOut == null && !d.still) s.add("myHours.reason.forgotOut");
+        if (d.brks.some((b) => !b.id && !b.removed)) s.add("myHours.reason.break");
+        if (d.cin !== toLocal(d.src.clockIn) || (!d.still && d.src.clockOut && d.cout !== toLocal(d.src.clockOut)))
+          s.add("myHours.reason.wrongTime");
+        if (d.brks.some((b) => b.removed || (b.id && JSON.stringify({ start: b.start, end: b.end, paid: b.paid }) !== b.orig)))
+          s.add("myHours.reason.wrongTime");
+      }
+    }
+    const best = [...s][0] ?? null;
+    for (const k of [
+      "myHours.reason.forgotOut",
+      "myHours.reason.forgotIn",
+      "myHours.reason.break",
+      "myHours.reason.leftSite",
+      "myHours.reason.wrongTime",
+    ] as MessageKey[])
+      s.add(k);
+    return { best, chips: [...s] };
+  }, [drafts]);
+  // Prefilled with the most likely reason until the person types their own.
+  const reason = typed ?? (suggestions.best ? t(suggestions.best) : "");
+
   const submit = useMutation({
     mutationFn: async () => {
+      wrote.current = 0;
       if (locked) {
-        await apiPost("/corrections", {
+        await post("/corrections", {
           timeEntryId: focus!.id,
           requested: { clockIn: toIso(cin), clockOut: toIso(cout) },
           reason,
@@ -424,6 +458,10 @@ export function EditEntryDialog({
         return t("toast.correctionRequested");
       }
       const editable = drafts.filter((d) => !d.ro);
+      // Count writes that land, so a failure part-way knows whether to close.
+      const apiDelete = <T,>(p: string, b: unknown) => del<T>(p, b).then((r) => (wrote.current++, r));
+      const apiPatch = <T,>(p: string, b: unknown) => patch<T>(p, b).then((r) => (wrote.current++, r));
+      const apiPost = <T,>(p: string, b: unknown) => post<T>(p, b).then((r) => (wrote.current++, r));
       // 1. Removed start/finishes first (frees time for the others).
       for (const d of editable.filter((x) => x.removed && x.id)) await apiDelete(`/entries/${d.id}`, { reason });
       // 2. Existing ones: removed breaks, then times.
@@ -467,8 +505,9 @@ export function EditEntryDialog({
     },
     onError: (e) => {
       toast.error(errMsg(e, t));
-      // Part of a multi-step save may have landed; refresh behind the dialog.
-      onDone();
+      // Nothing landed: keep the dialog and the person's edits so they can fix
+      // and retry. Part landed: close and refresh so a retry can't duplicate.
+      if (wrote.current > 0) onDone();
     },
   });
 
@@ -664,14 +703,29 @@ export function EditEntryDialog({
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="edit-reason">{t("myHours.reasonLabel")}</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.chips.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setTyped(t(k))}
+                  className={cn(
+                    "rounded-full border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted",
+                    reason === t(k) && "border-primary bg-primary/15 text-foreground",
+                  )}
+                >
+                  {t(k)}
+                </button>
+              ))}
+            </div>
             <Textarea
               id="edit-reason"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => setTyped(e.target.value)}
               placeholder={t("myHours.reasonPlaceholder")}
+              className="min-h-14"
             />
           </div>
-          {mode === "self" && !locked && <p className="text-xs text-muted-foreground">{t("myHours.editHint")}</p>}
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>

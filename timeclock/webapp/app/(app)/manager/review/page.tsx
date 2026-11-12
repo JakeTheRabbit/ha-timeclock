@@ -8,6 +8,7 @@ import { Check, CheckCheck, CircleCheck, MessageCircleQuestion, Pencil, Send, Un
 import { apiGet, apiPost } from "@/lib/api-client";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
+import { entriesHref } from "@/lib/links";
 import { useT } from "@/lib/i18n";
 import { errMsg, localDay, Textarea } from "@/components/entries/edit-entry-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -103,8 +104,12 @@ function ModCard({ mod, myId }: { mod: Mod; myId: string }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">{mod.employeeName}</span>
-        <span className="text-muted-foreground">{loc.date(`${mod.day}T12:00:00`)}</span>
+        <Link href={entriesHref(mod.employeeId, mod.day)} className="font-medium underline-offset-4 hover:underline">
+          {mod.employeeName}
+        </Link>
+        <Link href={entriesHref(mod.employeeId, mod.day)} className="text-muted-foreground underline-offset-4 hover:underline">
+          {loc.date(`${mod.day}T12:00:00`)}
+        </Link>
         <Badge variant="secondary">{KIND[mod.kind]}</Badge>
         <Badge className={`border-transparent capitalize ${STATUS_STYLE[mod.status]}`}>{mod.status}</Badge>
         <span className="ml-auto text-xs text-muted-foreground">{loc.dateTime(mod.createdAt)}</span>
@@ -381,8 +386,8 @@ export default function ReviewPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button asChild variant="ghost" size="sm" aria-label="Edit entries">
-                  <Link href="/manager/entries">
+                <Button asChild variant="ghost" size="sm" aria-label="Edit this day">
+                  <Link href={entriesHref(employeeId!, d.day, true)}>
                     <Pencil />
                   </Link>
                 </Button>
@@ -400,12 +405,17 @@ export default function ReviewPage() {
                       <Undo2 /> Reopen
                     </Button>
                   )
+                ) : d.hasOpen ? (
+                  // Say why it can't be approved, and where to fix it.
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={entriesHref(employeeId!, d.day, true)}>Still clocked in — close shift</Link>
+                  </Button>
+                ) : d.disputedMods > 0 ? (
+                  <span className="self-center text-xs text-destructive">Dispute open — resolve above</span>
+                ) : d.entries.length === 0 ? (
+                  <span className="self-center text-xs text-muted-foreground">No time</span>
                 ) : (
-                  <Button
-                    size="sm"
-                    disabled={approve.isPending || d.hasOpen || d.disputedMods > 0 || d.entries.length === 0}
-                    onClick={() => approve.mutate([d.day])}
-                  >
+                  <Button size="sm" disabled={approve.isPending} onClick={() => approve.mutate([d.day])}>
                     <CircleCheck /> Approve
                   </Button>
                 )}

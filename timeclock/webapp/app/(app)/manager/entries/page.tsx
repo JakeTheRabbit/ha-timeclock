@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, Pencil, Plus } from "lucide-react";
 import { apiGet } from "@/lib/api-client";
@@ -13,7 +13,7 @@ import {
   typicalFrom,
   type EntryRow,
 } from "@/components/entries/edit-entry-dialog";
-import { HourDots, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
+import { HourDots, liveMinutes, MonthCalendar, monthGrid, monthStart } from "@/components/entries/month-calendar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +42,20 @@ export default function ManagerEntriesPage() {
   };
   const canSee = session && ["lead", "manager", "admin"].includes(session.employee.role);
 
+  // Deep link from Review / dashboard: ?employeeId=…&day=YYYY-MM-DD[&edit=1].
+  const [editOnLoad, setEditOnLoad] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const emp = q.get("employeeId");
+    const day = q.get("day");
+    if (emp) setEmployeeId(emp);
+    if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      setSelected(day);
+      setMonth(monthStart(new Date(`${day}T12:00:00`)));
+      if (q.get("edit") === "1") setEditOnLoad(day);
+    }
+  }, []);
+
   const { start, end } = useMemo(() => monthGrid(month), [month]);
   const people = useQuery({
     queryKey: ["manager-employees"],
@@ -67,6 +81,14 @@ export default function ManagerEntriesPage() {
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([day, es]) => ({ day, entries: es.sort((a, b) => +new Date(a.clockIn) - +new Date(b.clockIn)) }));
   }, [entries]);
+  // Open the day editor once that day's entries have loaded.
+  useEffect(() => {
+    if (!editOnLoad || !list.data) return;
+    const es = days.find((d) => d.day === editOnLoad)?.entries ?? [];
+    setEditing(es.length ? { day: editOnLoad, focusId: es[0].id } : { day: editOnLoad, addNew: true });
+    setEditOnLoad(null);
+  }, [editOnLoad, list.data, days]);
+
   const flagged = useMemo(
     () => new Set(entries.filter((e) => e.clockOut == null || e.fraudFlags.length > 0).map((e) => e.day)),
     [entries],
@@ -115,7 +137,7 @@ export default function ManagerEntriesPage() {
                 {FLAG_LABELS[f] ?? f}
               </Badge>
             ))}
-            <span className="ml-auto font-mono text-sm">{hrs(es.reduce((a, e) => a + (e.workedMinutes ?? 0), 0))}</span>
+            <span className="ml-auto font-mono text-sm">{hrs(es.reduce((a, e) => a + liveMinutes(e), 0))}</span>
           </button>
           <HourDots day={day} entries={es} />
           <div className="flex flex-col gap-0.5 font-mono text-sm text-muted-foreground">
@@ -123,7 +145,7 @@ export default function ManagerEntriesPage() {
               <span key={e.id}>
                 {loc.time(e.clockIn)} → {e.clockOut ? loc.time(e.clockOut) : "still clocked in"}
                 {e.breaks.length > 0 && ` · ${e.breaks.length} break${e.breaks.length > 1 ? "s" : ""}`}
-                <span className="ml-2">{hrs(e.workedMinutes)}</span>
+                <span className="ml-2">{hrs(liveMinutes(e))}</span>
               </span>
             ))}
           </div>

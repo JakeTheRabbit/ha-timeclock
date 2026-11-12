@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Clock, House, KeyRound, LogOut, ShieldCheck, Timer } from "lucide-react";
 import { toast } from "sonner";
@@ -54,6 +55,7 @@ export default function PinPage() {
       ),
   });
 
+  const router = useRouter();
   const login = useMutation({
     mutationFn: (vars: { employeeId: string; pin: string }) =>
       apiPost<{ ok: boolean; employee: SessionEmployee }>("/auth/pin-login", vars),
@@ -61,6 +63,8 @@ export default function PinPage() {
       toast.success(t("toast.signedInAs", { name: data.employee.displayName }));
       setSelected(null);
       qc.invalidateQueries({ queryKey: ["session"] });
+      // Straight to the clock — that's why they signed in.
+      router.push("/clock");
     },
     onError: (e) => {
       if (e instanceof ApiError) {

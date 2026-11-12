@@ -58,8 +58,11 @@ export const clock = new Hono<AppEnv>()
   // Current punch state for the signed-in employee (drives the kiosk screen).
   .get("/status", async (c) => {
     const me = c.get("auth")!.employee;
+    // What a punch must carry, so the screen can gather it up front.
+    const { antifraud } = await getSettings();
+    const requires = { geo: antifraud.geofence.enabled, photo: antifraud.photoOnPunch };
     const entry = await openEntryFor(me.id);
-    if (!entry) return c.json({ open: null });
+    if (!entry) return c.json({ open: null, requires });
 
     const db = getDb();
     const entryBreaks = await db.query.breaks.findMany({
@@ -80,6 +83,7 @@ export const clock = new Hono<AppEnv>()
           : null,
         unpaidBreakMin: unpaidBreakMinutes(entryBreaks, new Date()),
       },
+      requires,
     });
   })
 

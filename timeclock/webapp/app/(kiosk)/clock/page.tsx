@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, CloudOff, Coffee, KeyRound, LogIn, LogOut, UtensilsCrossed } from "lucide-react";
 import { toast } from "sonner";
@@ -17,10 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { apiErrorCode, apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLiveTimer } from "@/hooks/use-live-timer";
-import { enqueuePunch, flushQueue, queuedPunches, isNetworkError } from "@/lib/offline-queue";
+import { enqueuePunch, flushQueue, queuedPunches, isNetworkError, type QueuedPunch } from "@/lib/offline-queue";
 import { useT } from "@/lib/i18n";
 import { useLocale } from "@/lib/format";
 
@@ -32,6 +33,8 @@ interface Status {
     onBreak: { breakId: string; startAt: string; paid: boolean } | null;
     unpaidBreakMin: number;
   } | null;
+  /** What a clock-in must carry (geofence / photo-on-punch settings). */
+  requires?: { geo: boolean; photo: boolean };
 }
 interface Jobs {
   jobs: { id: string; name: string; code: string | null }[];
@@ -44,6 +47,34 @@ interface ActResult {
 }
 
 const NO_JOB = "__none__";
+
+/** Best-effort location; null if denied, unavailable or slow. */
+const getGeo = () =>
+  new Promise<{ lat: number; lng: number } | null>((resolve) => {
+    if (!("geolocation" in navigator)) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+    );
+  });
+
+/** Camera photo → downscaled JPEG data URL (well under the 3 MB cap). */
+const toJpeg = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 800 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
 
 export default function ClockPage() {
   const qc = useQueryClient();
@@ -64,22 +95,36 @@ export default function ClockPage() {
     enabled: !!session,
   });
 
-  const open = status.data?.open ?? null;
+  const [queue, setQueue] = useState<QueuedPunch[]>([]);
+  const queued = queue.length;
+  const lastQueued = queue[queue.length - 1] ?? null;
+  const photoInput = useRef<HTMLInputElement>(null);
+  const [locating, setLocating] = useState(false);
+
+  // A punch queued offline is what the person did — show it, not stale state.
+  const serverOpen = status.data?.open ?? null;
+  const pendingIn = lastQueued?.path === "/clock/in";
+  const pendingOut = lastQueued?.path === "/clock/out";
+  const open: Status["open"] = pendingOut
+    ? null
+    : (serverOpen ??
+      (pendingIn
+        ? { entryId: "", clockIn: lastQueued!.queuedAt, job: null, onBreak: null, unpaidBreakMin: 0 }
+        : null));
   const timer = useLiveTimer(open?.clockIn ?? null);
   const breakTimer = useLiveTimer(open?.onBreak?.startAt ?? null);
-  const [queued, setQueued] = useState(0);
 
   // Offline queue: flush on mount + whenever connectivity returns.
   useEffect(() => {
     const flush = () =>
       flushQueue().then((n) => {
-        setQueued(queuedPunches().length);
+        setQueue(queuedPunches());
         if (n > 0) {
           toast.success(t("clock.syncedPunches", { n }));
           qc.invalidateQueries({ queryKey: ["clock-status"] });
         }
       });
-    setQueued(queuedPunches().length);
+    setQueue(queuedPunches());
     flush();
     window.addEventListener("online", flush);
     return () => window.removeEventListener("online", flush);
@@ -95,23 +140,25 @@ export default function ClockPage() {
         // Network down: queue clock in/out punches for replay (P12).
         if (isNetworkError(e) && (path === "/clock/in" || path === "/clock/out")) {
           enqueuePunch(path, data ?? {});
-          setQueued(queuedPunches().length);
+          setQueue(queuedPunches());
           toast.info(t("clock.offlineQueued"));
           return { queued: true };
         }
-        const code = e instanceof ApiError ? (e.body as { error?: string })?.error : undefined;
-        toast.error(
-          code === "just_clocked_out"
-            ? t("clock.justClockedOut")
-            : e instanceof ApiError
-              ? `${code ?? e.status}`
-              : t("toast.requestFailed"),
-        );
+        toast.error(apiErrorCode(e) === "just_clocked_out" ? t("clock.justClockedOut") : apiErrorText(e, t));
         throw e;
       });
 
+  const requires = status.data?.requires;
   const clockIn = useMutation({
-    mutationFn: () => act("/clock/in", { jobId: jobId || null }),
+    mutationFn: async (photo?: string) => {
+      let geo: { lat: number; lng: number } | null = null;
+      if (requires?.geo) {
+        setLocating(true);
+        geo = await getGeo().finally(() => setLocating(false));
+        if (!geo) toast.warning(t("clock.noLocation"));
+      }
+      return act("/clock/in", { jobId: jobId || null, ...(geo && { geo }), ...(photo && { photo }) });
+    },
     onSuccess: (r) => {
       if (!r.queued) toast.success(t("toast.clockedIn"));
     },
@@ -145,7 +192,11 @@ export default function ClockPage() {
     onSuccess: () => toast.success(t("toast.switchedJob")),
   });
 
+  // Photo-on-punch: the camera has to open from the tap itself.
+  const startClockIn = () => (requires?.photo ? photoInput.current?.click() : clockIn.mutate(undefined));
+
   const busy =
+    locating ||
     clockIn.isPending ||
     clockOut.isPending ||
     breakStart.isPending ||
@@ -182,7 +233,9 @@ export default function ClockPage() {
       <div className="flex flex-col items-center gap-3 text-center">
         {open ? (
           <>
-            <Badge className="px-3 py-1 text-sm">{t("clock.clockedIn")}</Badge>
+            <Badge className="px-3 py-1 text-sm">
+              {pendingIn ? t("clock.clockedInPendingSync") : t("clock.clockedIn")}
+            </Badge>
             <div className="font-mono text-6xl tabular-nums sm:text-7xl">{timer}</div>
             <div className="text-sm text-muted-foreground">
               {t("clock.since", {
@@ -202,7 +255,7 @@ export default function ClockPage() {
         ) : (
           <>
             <Badge variant="secondary" className="px-3 py-1 text-sm">
-              {t("clock.clockedOut")}
+              {pendingOut ? t("clock.clockedOutPendingSync") : t("clock.clockedOut")}
             </Badge>
             <div className="font-mono text-6xl text-muted-foreground/40 tabular-nums sm:text-7xl">
               0:00:00
@@ -309,11 +362,29 @@ export default function ClockPage() {
           {/* Giant primary action */}
           <Button
             disabled={busy}
-            onClick={() => clockIn.mutate()}
+            onClick={startClockIn}
             className="h-20 w-full rounded-xl text-2xl font-semibold"
           >
-            <LogIn className="size-7" aria-hidden="true" /> {t("clock.clockIn")}
+            <LogIn className="size-7" aria-hidden="true" /> {locating ? t("clock.locating") : t("clock.clockIn")}
           </Button>
+          {requires?.photo && <p className="text-center text-xs text-muted-foreground">{t("clock.photoHint")}</p>}
+          <input
+            ref={photoInput}
+            type="file"
+            accept="image/*"
+            capture="user"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              try {
+                clockIn.mutate(await toJpeg(f));
+              } catch {
+                toast.error(t("error.photo_not_jpeg"));
+              }
+            }}
+          />
         </div>
       )}
 
@@ -321,6 +392,7 @@ export default function ClockPage() {
         <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
           <CloudOff className="size-4" aria-hidden="true" />
           {t("clock.offlinePending", { n: queued })}
+          {lastQueued && <> · {loc.time(lastQueued.queuedAt)}</>}
         </div>
       )}
     </div>

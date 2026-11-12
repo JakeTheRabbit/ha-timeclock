@@ -15,10 +15,13 @@ import {
   X,
 } from "lucide-react";
 
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLiveTimer } from "@/hooks/use-live-timer";
 import { useLocale } from "@/lib/format";
+import { entriesHref } from "@/lib/links";
+import { localDay } from "@/components/entries/edit-entry-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -62,18 +65,15 @@ interface PendingLeave {
   note: string | null;
 }
 
-function errorMessage(e: unknown): string {
-  if (e instanceof ApiError) {
-    const detail = (e.body as { error?: string } | null)?.error;
-    return detail ? `${detail} (${e.status})` : `Request failed (${e.status})`;
-  }
-  return "Request failed.";
-}
+const errorMessage = (e: unknown): string => apiErrorText(e);
 
 function LiveRow({ e }: { e: Board["clockedIn"][number] }) {
   const timer = useLiveTimer(e.clockIn);
   return (
-    <div className="flex min-h-11 items-center gap-3">
+    <Link
+      href={entriesHref(e.employeeId, localDay(new Date(e.clockIn)))}
+      className="-mx-2 flex min-h-11 items-center gap-3 rounded-md px-2 hover:bg-muted/50"
+    >
       <div className="relative shrink-0">
         <Avatar employeeId={e.employeeId} name={e.employeeName} size="sm" />
         <span
@@ -92,7 +92,7 @@ function LiveRow({ e }: { e: Board["clockedIn"][number] }) {
       <span className="font-mono text-sm tabular-nums text-muted-foreground">
         {timer}
       </span>
-    </div>
+    </Link>
   );
 }
 

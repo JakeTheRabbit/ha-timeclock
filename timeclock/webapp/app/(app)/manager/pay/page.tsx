@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Ban, Gift } from "lucide-react";
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -43,8 +44,7 @@ interface PaySummary {
 const money = (cents: number | null) =>
   cents == null ? "—" : new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" }).format(cents / 100);
 const hrs = (min: number | null) => (min == null ? "—" : (min / 60).toFixed(2) + "h");
-const errOf = (e: unknown) =>
-  e instanceof ApiError ? ((e.body as { error?: string })?.error ?? `HTTP ${e.status}`) : "Request failed";
+const errOf = (e: unknown) => apiErrorText(e);
 const today = () => new Date().toLocaleDateString("en-CA");
 
 const RANGES = { "14": "Last 2 weeks", "28": "Last 4 weeks", "90": "Last 3 months" } as const;

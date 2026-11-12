@@ -5,7 +5,8 @@ import * as React from "react";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
@@ -77,10 +78,7 @@ const STATUS_KEY: Record<Compare["shifts"][number]["status"], MessageKey> = {
   no_show: "roster.statusNoShow",
 };
 
-const errMsg = (e: unknown, t: TFn) =>
-  e instanceof ApiError
-    ? ((e.body as { error?: string })?.error ?? t("toast.errorStatus", { status: e.status }))
-    : t("toast.requestFailed");
+const errMsg = (e: unknown, t: TFn) => apiErrorText(e, t);
 
 function Container({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
@@ -99,7 +97,9 @@ export default function RosterPage() {
   const week = useMemo(() => {
     const from = new Date(date + "T00:00:00");
     const to = new Date(from.getTime() + 6 * 86_400_000);
-    return { from: date, to: to.toISOString().slice(0, 10) };
+    // Local calendar date — toISOString() is UTC and lands a day early in NZ.
+    const d = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, "0")}-${String(to.getDate()).padStart(2, "0")}`;
+    return { from: date, to: d };
   }, [date]);
 
   const shiftWeek = (days: number) => {

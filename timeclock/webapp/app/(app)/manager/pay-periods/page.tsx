@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download, Lock, LockKeyhole } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Lock, LockKeyhole, LockOpen } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
-import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiGet, apiPost } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useLocale } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -73,16 +75,31 @@ export default function PayPeriodsPage() {
   const { session, isLoading } = useSession();
   const loc = useLocale();
   const d = (iso: string) => loc.date(iso, { day: "numeric", month: "short" });
-  const [selected, setSelected] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [unlockReason, setUnlockReason] = useState("");
   const canSee =
     session && ["lead", "manager", "admin"].includes(session.employee.role);
+  const role = session?.employee.role;
+  const canLock = role === "manager" || role === "admin";
+  const canUnlock = role === "admin";
 
   const periods = useQuery({
     queryKey: ["pay-periods"],
     queryFn: () => apiGet<{ periods: Period[] }>("/manager/pay-periods"),
     enabled: !!canSee,
   });
+  // Newest first. Default = the latest finished period still to sign off,
+  // else the latest finished one, else the current one.
+  const list = periods.data?.periods ?? [];
+  const now = Date.now();
+  const fallback =
+    list.find((p) => +new Date(p.endAt) <= now && !p.lockedAt) ??
+    list.find((p) => +new Date(p.endAt) <= now) ??
+    list[0];
+  const selected = picked ?? fallback?.id ?? null;
+  const idx = list.findIndex((p) => p.id === selected);
   const timesheet = useQuery({
     queryKey: ["timesheet", selected],
     queryFn: () =>
@@ -90,6 +107,18 @@ export default function PayPeriodsPage() {
         `/manager/pay-periods/${selected}/timesheet`,
       ),
     enabled: !!selected,
+  });
+
+  const unlock = useMutation({
+    mutationFn: (id: string) => apiPost(`/manager/pay-periods/${id}/unlock`, { reason: unlockReason }),
+    onSuccess: () => {
+      toast.success("Period unlocked — entries can be edited again.");
+      setUnlockOpen(false);
+      setUnlockReason("");
+      qc.invalidateQueries({ queryKey: ["pay-periods"] });
+      qc.invalidateQueries({ queryKey: ["timesheet"] });
+    },
+    onError: (e) => toast.error(`Unlock refused: ${apiErrorText(e)}`),
   });
 
   const lock = useMutation({
@@ -101,9 +130,7 @@ export default function PayPeriodsPage() {
     },
     onError: (e) =>
       toast.error(
-        e instanceof ApiError
-          ? `Lock refused: ${(e.body as { error?: string })?.error}`
-          : "Lock failed",
+        `Lock refused: ${apiErrorText(e)}`,
       ),
   });
 
@@ -133,20 +160,43 @@ export default function PayPeriodsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
-      {/* Period selector */}
-      <Select value={selected ?? undefined} onValueChange={setSelected}>
-        <SelectTrigger aria-label="Select pay period">
-          <SelectValue placeholder="Select a pay period…" />
-        </SelectTrigger>
-        <SelectContent>
-          {periods.data?.periods.map((p) => (
-            <SelectItem key={p.id} value={p.id}>
-              {d(p.startAt)} – {d(p.endAt)}
-              {p.lockedAt && <Lock className="size-3.5 text-muted-foreground" />}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* Period selector: older ‹ [period] › newer */}
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Older period"
+          disabled={idx < 0 || idx >= list.length - 1}
+          onClick={() => setPicked(list[idx + 1].id)}
+        >
+          <ChevronLeft />
+        </Button>
+        <Select value={selected ?? undefined} onValueChange={setPicked}>
+          <SelectTrigger aria-label="Select pay period" className="flex-1">
+            <SelectValue placeholder="Select a pay period…" />
+          </SelectTrigger>
+          <SelectContent>
+            {list.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {d(p.startAt)} – {d(p.endAt)}
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {p.lockedAt ? "Locked" : +new Date(p.endAt) > now ? "Current" : "To sign off"}
+                </span>
+                {p.lockedAt && <Lock className="size-3.5 text-muted-foreground" />}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Newer period"
+          disabled={idx <= 0}
+          onClick={() => setPicked(list[idx - 1].id)}
+        >
+          <ChevronRight />
+        </Button>
+      </div>
 
       {selected && timesheet.isLoading && (
         <Skeleton className="h-64 w-full rounded-xl" />
@@ -157,6 +207,15 @@ export default function PayPeriodsPage() {
           {/* Sign-off / lock + exports */}
           <div className="flex flex-wrap items-center gap-2">
             {!period.lockedAt ? (
+              !canLock ? (
+                <Badge variant="secondary" className="px-3 py-1.5 text-sm">
+                  Open — a manager signs off and locks
+                </Badge>
+              ) : +new Date(period.endAt) > now ? (
+                <Badge variant="secondary" className="px-3 py-1.5 text-sm">
+                  Current period — lock after {d(period.endAt)}
+                </Badge>
+              ) : (
               <>
                 <Button
                   variant="destructive"
@@ -193,13 +252,48 @@ export default function PayPeriodsPage() {
                   </DialogContent>
                 </Dialog>
               </>
+              )
             ) : (
-              <Badge
-                variant="secondary"
-                className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4"
-              >
-                <Lock /> Locked {loc.dateTime(period.lockedAt)}
-              </Badge>
+              <>
+                <Badge
+                  variant="secondary"
+                  className="gap-1.5 px-3 py-1.5 text-sm [&>svg]:size-4"
+                >
+                  <Lock /> Locked {loc.dateTime(period.lockedAt)}
+                </Badge>
+                {canUnlock && (
+                  <Dialog open={unlockOpen} onOpenChange={setUnlockOpen}>
+                    <Button variant="ghost" size="sm" onClick={() => setUnlockOpen(true)}>
+                      <LockOpen /> Unlock
+                    </Button>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Unlock this pay period?</DialogTitle>
+                        <DialogDescription>
+                          Entries in {d(period.startAt)} – {d(period.endAt)} become editable again. This is
+                          recorded in the audit log with your reason.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <Input
+                        value={unlockReason}
+                        onChange={(e) => setUnlockReason(e.target.value)}
+                        placeholder="Reason (e.g. payroll correction for Sam)"
+                      />
+                      <DialogFooter>
+                        <DialogClose asChild>
+                          <Button variant="outline">Cancel</Button>
+                        </DialogClose>
+                        <Button
+                          disabled={unlockReason.trim().length < 5 || unlock.isPending}
+                          onClick={() => unlock.mutate(period.id)}
+                        >
+                          <LockOpen /> Unlock period
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
+              </>
             )}
             <Button asChild variant="outline">
               <a href={`${BASE}/api/reports/timesheet.csv?periodId=${selected}`}>

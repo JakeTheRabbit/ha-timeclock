@@ -5,8 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarDays,
   ChartColumn,
   ChevronLeft,
+  Palmtree,
   House,
   LogOut,
   Settings2,
@@ -110,9 +112,17 @@ export function AppShell({ children, title, variant = "default" }: AppShellProps
   const isHome = pathname === "/";
   const pageTitle = title ?? titleOf(pathname, t);
 
+  // Five tabs max: staff get Roster + Leave, leads get Leave, admins neither.
+  const leaveTab: NavTab = { href: "/leave", match: "/leave", label: "route.leave", icon: Palmtree };
+  const rosterTab: NavTab = { href: "/roster", match: "/roster", label: "route.roster", icon: CalendarDays };
   const tabs: NavTab[] = employee
     ? [
         ...BASE_TABS,
+        ...(!roleAtLeast(employee.role, "lead")
+          ? [rosterTab, leaveTab]
+          : !roleAtLeast(employee.role, "admin")
+            ? [leaveTab]
+            : []),
         ...(roleAtLeast(employee.role, "lead")
           ? [{ href: "/manager", match: "/manager", label: "nav.manager", icon: Users } as NavTab]
           : []),

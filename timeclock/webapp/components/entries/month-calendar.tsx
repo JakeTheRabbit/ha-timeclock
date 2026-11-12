@@ -18,6 +18,16 @@ export function monthGrid(month: Date) {
   return { start, end };
 }
 
+/** Worked minutes; for a shift still running, worked so far (less unpaid breaks). */
+export function liveMinutes(e: EntryRow): number {
+  if (e.workedMinutes != null) return e.workedMinutes;
+  const now = Date.now();
+  const unpaid = e.breaks
+    .filter((b) => !b.paid)
+    .reduce((s, b) => s + ((b.endAt ? +new Date(b.endAt) : now) - +new Date(b.startAt)), 0);
+  return Math.max(0, Math.round((now - +new Date(e.clockIn) - unpaid) / 60_000));
+}
+
 /** Minutes of work and break in each local hour 0–23 of `day`. */
 export function hourBuckets(day: string, entries: EntryRow[]) {
   const base = new Date(`${day}T00:00:00`).getTime();
@@ -104,7 +114,7 @@ export function MonthCalendar({
   const { start } = monthGrid(month);
   const today = localDay();
   const minsByDay = new Map<string, number>();
-  for (const e of entries) minsByDay.set(e.day, (minsByDay.get(e.day) ?? 0) + (e.workedMinutes ?? 0));
+  for (const e of entries) minsByDay.set(e.day, (minsByDay.get(e.day) ?? 0) + liveMinutes(e));
   const approved = approvedDays ?? new Set(entries.filter((e) => e.dayApproved).map((e) => e.day));
   const cells = Array.from({ length: 42 }, (_, i) => {
     const d = new Date(start);
@@ -115,7 +125,7 @@ export function MonthCalendar({
   const shown = cells[35].getMonth() !== month.getMonth() ? cells.slice(0, 35) : cells;
   const monthMin = entries
     .filter((e) => new Date(`${e.day}T12:00:00`).getMonth() === month.getMonth())
-    .reduce((a, e) => a + (e.workedMinutes ?? 0), 0);
+    .reduce((a, e) => a + liveMinutes(e), 0);
 
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border p-3">

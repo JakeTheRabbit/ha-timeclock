@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.12.0 — fixes + quick ease-of-use wins
+
+Fixes
+- **Clock-in with geofence / photo-on-punch**: the clock screen now sends the
+  phone's location (when a geofence is set) and opens the camera for a photo
+  (when photo-on-punch is on). Before, every punch was refused when either
+  was enforced, and non-enforced geofences flagged every punch "geo_missing".
+- **Roster week** ended a day early in NZ (UTC date) — the 7th day's shifts
+  were missing.
+
+Ease of use
+- **Plain-language errors** everywhere (clock, hours, leave, roster, manager
+  pages) instead of raw codes like `already_clocked_in`; 5 languages.
+- **Deep links into Entries**: `/manager/entries?employeeId=…&day=…[&edit=1]`
+  opens that person's day (and the day editor). Used from Timesheet review
+  (name, date, edit button) and the dashboard's "On the clock" board.
+- **PIN sign-in** goes straight to the clock.
+- **Disputes** have an "Open this day" button and the day is dotted amber on
+  the calendar.
+- **Day editor**: reason chips (forgot clock-out / clock-in / break, left site,
+  wrong time, clocked by mistake), prefilled with the most likely one from what
+  changed; a failed save keeps your edits when nothing was written.
+- **Running shifts** count live on the calendar, day cards and totals (were 0h).
+- **Pay periods** open on the latest finished period still to sign off, with
+  older/newer steppers and status labels. Leads see who locks instead of a
+  Lock button that fails; admins get **Unlock** with a reason.
+- **Timesheet review**: a day that can't be approved says why (still clocked
+  in → link to close it; dispute open; no time).
+- **Bottom bar**: staff get Roster + Leave; leads get Leave.
+- **Offline punches** show "Clocked in — waiting to sync" with the time, so
+  nobody taps twice.
+
 ## 0.11.0 — calendar, whole-day editor, smart defaults
 
 - **Calendar** on **My hours** and **Manager → Entries**: month view, hours per

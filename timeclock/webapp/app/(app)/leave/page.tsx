@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiGet, apiPost, ApiError } from "@/lib/api-client";
+import { apiErrorText } from "@/lib/api-errors";
 import { useSession } from "@/hooks/use-session";
 import { useT, type MessageKey, type TVars } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -63,10 +64,7 @@ const STATUS_BADGE: Record<string, string> = {
   rejected: "border-transparent bg-rose-500/15 text-rose-300",
 };
 
-const errMsg = (e: unknown, t: TFn) =>
-  e instanceof ApiError
-    ? ((e.body as { error?: string })?.error ?? t("toast.errorStatus", { status: e.status }))
-    : t("toast.requestFailed");
+const errMsg = (e: unknown, t: TFn) => apiErrorText(e, t);
 
 function Container({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">{children}</div>;
