@@ -60,7 +60,7 @@ export default function ManagerEntriesPage() {
     }
   }, []);
 
-  const { start, end } = useMemo(() => monthGrid(month), [month]);
+  const { start, end } = useMemo(() => monthGrid(month, loc.weekStart), [month, loc.weekStart]);
   const people = useQuery({
     queryKey: ["manager-employees"],
     queryFn: () => apiGet<{ employees: { id: string; displayName: string; active: boolean }[] }>("/manager/employees"),
