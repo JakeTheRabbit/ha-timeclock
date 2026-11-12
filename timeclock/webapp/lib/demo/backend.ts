@@ -399,6 +399,32 @@ function facDay(isoStr: string): string {
 function isApproved(empId: string, day: string): boolean {
   return state.approvals.some((a) => a.employeeId === empId && a.day === day);
 }
+/** /review/days rows for one employee in [from, to], newest first. */
+function reviewDays(emp: string, from: string, to: string) {
+  const byDay = new Map<string, ReturnType<typeof entryJson>[]>();
+  for (const e of state.entries.filter((x) => x.employeeId === emp)) {
+    const j = entryJson(e);
+    if (j.day < from || j.day > to) continue;
+    byDay.set(j.day, [...(byDay.get(j.day) ?? []), j]);
+  }
+  const days = [...byDay.entries()].map(([day, es]) => {
+    const a = state.approvals.find((x) => x.employeeId === emp && x.day === day);
+    const ms = state.mods.filter((x) => x.employeeId === emp && x.day === day);
+    return {
+      day,
+      entries: es.sort((x, y) => (x.clockIn < y.clockIn ? -1 : 1)),
+      workedMinutes: es.reduce((t, x) => t + (x.workedMinutes ?? 0), 0),
+      hasOpen: es.some((x) => !x.clockOut),
+      approved: a ? { at: a.at, by: empName(a.by) } : null,
+      pendingMods: ms.filter((x) => x.status === "pending").length,
+      disputedMods: ms.filter((x) => x.status === "disputed").length,
+      rostered: state.shifts
+        .filter((s) => s.employeeId === emp && s.shiftDate === day)
+        .map((s) => ({ startMin: s.startMin, endMin: s.endMin })),
+    };
+  });
+  return days.sort((x, y) => (x.day < y.day ? 1 : -1));
+}
 function entryJson(e: DemoEntry) {
   const day = facDay(e.clockIn);
   const approved = isApproved(e.employeeId, day);
@@ -712,38 +738,37 @@ function handle(req: Req): { status: number; body: Json } {
   }
   if (seg === "/review/days") {
     const emp = req.query.get("employeeId") ?? me().id;
-    const from = req.query.get("from") ?? "0000";
-    const to = req.query.get("to") ?? "9999";
-    const byDay = new Map<string, ReturnType<typeof entryJson>[]>();
-    for (const e of state.entries.filter((x) => x.employeeId === emp)) {
-      const j = entryJson(e);
-      if (j.day < from || j.day > to) continue;
-      byDay.set(j.day, [...(byDay.get(j.day) ?? []), j]);
-    }
-    const days = [...byDay.entries()].map(([day, es]) => {
-      const a = state.approvals.find((x) => x.employeeId === emp && x.day === day);
-      const ms = state.mods.filter((x) => x.employeeId === emp && x.day === day);
-      return {
-        day,
-        entries: es.sort((x, y) => (x.clockIn < y.clockIn ? -1 : 1)),
-        workedMinutes: es.reduce((t, x) => t + (x.workedMinutes ?? 0), 0),
-        hasOpen: es.some((x) => !x.clockOut),
-        approved: a ? { at: a.at, by: empName(a.by) } : null,
-        pendingMods: ms.filter((x) => x.status === "pending").length,
-        disputedMods: ms.filter((x) => x.status === "disputed").length,
-      };
+    return ok({ days: reviewDays(emp, req.query.get("from") ?? "0000", req.query.get("to") ?? "9999") });
+  }
+  if (seg === "/review/days/all") {
+    const emp = req.query.get("employeeId");
+    const to = req.query.get("to") ?? facDay(iso(new Date()));
+    const from = req.query.get("from") ?? facDay(iso(new Date(Date.now() - 27 * 86400_000)));
+    const people = state.employees.filter((e) => (emp ? e.id === emp : e.active));
+    return ok({
+      from,
+      to,
+      people: people
+        .sort((a, b) => a.displayName.localeCompare(b.displayName))
+        .map((p) => ({ employeeId: p.id, employeeName: p.displayName, days: reviewDays(p.id, from, to) })),
     });
-    return ok({ days: days.sort((x, y) => (x.day < y.day ? 1 : -1)) });
   }
   if (seg === "/review/days/approve" && method === "POST") {
     const emp = String(req.body?.employeeId);
     const approved: string[] = [];
+    const skipped: { day: string; reason: string }[] = [];
     for (const day of (req.body?.days as string[]) ?? []) {
-      if (isApproved(emp, day)) continue;
+      if (isApproved(emp, day)) { skipped.push({ day, reason: "already_approved" }); continue; }
+      const es = state.entries.filter((x) => x.employeeId === emp && facDay(x.clockIn) === day);
+      if (es.some((x) => !x.clockOut)) { skipped.push({ day, reason: "open_entry" }); continue; }
+      if (state.mods.some((x) => x.employeeId === emp && x.day === day && x.status === "disputed")) {
+        skipped.push({ day, reason: "dispute_open" });
+        continue;
+      }
       state.approvals.push({ employeeId: emp, day, by: me().id, at: iso(new Date()) });
       approved.push(day);
     }
-    return ok({ ok: true, approved, skipped: [] });
+    return ok({ ok: true, approved, skipped });
   }
   if (seg === "/review/days/unapprove" && method === "POST") {
     state.approvals = state.approvals.filter((a) => !(a.employeeId === req.body?.employeeId && a.day === req.body?.day));

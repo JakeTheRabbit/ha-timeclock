@@ -7,6 +7,7 @@ import {
   employees,
   modificationMessages,
   modifications,
+  rosters,
   timeEntries,
   type Employee,
   type Modification,
@@ -15,6 +16,7 @@ import type { AppEnv } from "@/server/context";
 import { requireRole, roleAtLeast } from "@/server/auth/rbac";
 import { appendAudit } from "@/server/domain/audit/writer";
 import { dayOf } from "@/server/domain/time/day-review";
+import { periodWindowContaining } from "@/server/domain/payperiod/periods";
 import { hydrateEntries } from "@/server/routes/entries";
 import { notify } from "@/server/integrations/notify";
 import { notifyEmployee } from "@/server/integrations/notify/personal";
@@ -68,6 +70,88 @@ async function withThreads(rows: Modification[]) {
       .filter((x) => x.m.modificationId === r.id)
       .map((x) => ({ id: x.m.id, authorId: x.m.authorId, authorName: x.authorName, body: x.m.body, createdAt: x.m.createdAt })),
   }));
+}
+
+/**
+ * Per-day summaries (hours, breaks, roster, approval, open changes) for
+ * several employees in [from, to], newest day first. Keyed by employee id.
+ */
+async function buildDays(employeeIds: string[], from: string, to: string) {
+  const out = new Map<string, DayRow[]>();
+  if (employeeIds.length === 0) return out;
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(timeEntries)
+    .where(
+      and(
+        inArray(timeEntries.employeeId, employeeIds),
+        gte(timeEntries.clockIn, coverFrom(from)),
+        lt(timeEntries.clockIn, coverTo(to)),
+      ),
+    )
+    .orderBy(asc(timeEntries.clockIn));
+  const empOf = new Map(rows.map((r) => [r.id, r.employeeId]));
+  const hydrated = (await hydrateEntries(rows)).filter((e) => e.day >= from && e.day <= to);
+  const approvals = await db
+    .select({ a: dayApprovals, by: employees.displayName })
+    .from(dayApprovals)
+    .innerJoin(employees, eq(dayApprovals.approvedBy, employees.id))
+    .where(and(inArray(dayApprovals.employeeId, employeeIds), gte(dayApprovals.day, from), lte(dayApprovals.day, to)));
+  const mods = await db
+    .select({ employeeId: modifications.employeeId, day: modifications.day, status: modifications.status })
+    .from(modifications)
+    .where(and(inArray(modifications.employeeId, employeeIds), gte(modifications.day, from), lte(modifications.day, to)));
+  const shifts = await db
+    .select({ employeeId: rosters.employeeId, day: rosters.shiftDate, startMin: rosters.startMin, endMin: rosters.endMin })
+    .from(rosters)
+    .where(
+      and(
+        inArray(rosters.employeeId, employeeIds),
+        eq(rosters.cancelled, false),
+        gte(rosters.shiftDate, from),
+        lte(rosters.shiftDate, to),
+      ),
+    )
+    .orderBy(asc(rosters.startMin));
+
+  const days = new Map<string, DayRow>();
+  const get = (emp: string, d: string) => {
+    let v = days.get(`${emp}|${d}`);
+    if (!v) {
+      v = { day: d, entries: [], workedMinutes: 0, hasOpen: false, approved: null, pendingMods: 0, disputedMods: 0, rostered: [] };
+      days.set(`${emp}|${d}`, v);
+      out.set(emp, [...(out.get(emp) ?? []), v]);
+    }
+    return v;
+  };
+  for (const e of hydrated) {
+    const d = get(empOf.get(e.id)!, e.day);
+    d.entries.push(e);
+    d.workedMinutes += e.workedMinutes ?? 0;
+    if (!e.clockOut) d.hasOpen = true;
+  }
+  for (const a of approvals) get(a.a.employeeId, a.a.day).approved = { at: a.a.approvedAt, by: a.by };
+  for (const m of mods) {
+    if (m.status === "pending") get(m.employeeId, m.day).pendingMods++;
+    if (m.status === "disputed") get(m.employeeId, m.day).disputedMods++;
+  }
+  // Roster only annotates days that have something else on them.
+  for (const s of shifts) days.get(`${s.employeeId}|${s.day}`)?.rostered.push({ startMin: s.startMin, endMin: s.endMin });
+  for (const list of out.values()) list.sort((a, b) => (a.day < b.day ? 1 : -1));
+  return out;
+}
+
+interface DayRow {
+  day: string;
+  entries: Awaited<ReturnType<typeof hydrateEntries>>;
+  workedMinutes: number;
+  hasOpen: boolean;
+  approved: { at: Date; by: string } | null;
+  pendingMods: number;
+  disputedMods: number;
+  /** Rostered shifts that day, facility-local minutes from midnight. */
+  rostered: { startMin: number; endMin: number }[];
 }
 
 async function findMod(id: string) {
@@ -293,58 +377,51 @@ export const review = new Hono<AppEnv>()
       .safeParse({ employeeId: c.req.query("employeeId"), from: c.req.query("from"), to: c.req.query("to") });
     if (!q.success) return c.json({ error: "bad_request" }, 400);
     const { employeeId, from, to } = q.data;
-    const db = getDb();
-    const rows = await db
-      .select()
-      .from(timeEntries)
-      .where(
-        and(
-          eq(timeEntries.employeeId, employeeId),
-          gte(timeEntries.clockIn, coverFrom(from)),
-          lt(timeEntries.clockIn, coverTo(to)),
-        ),
-      )
-      .orderBy(asc(timeEntries.clockIn));
-    const hydrated = (await hydrateEntries(rows)).filter((e) => e.day >= from && e.day <= to);
-    const approvals = await db
-      .select({ a: dayApprovals, by: employees.displayName })
-      .from(dayApprovals)
-      .innerJoin(employees, eq(dayApprovals.approvedBy, employees.id))
-      .where(and(eq(dayApprovals.employeeId, employeeId), gte(dayApprovals.day, from), lte(dayApprovals.day, to)));
-    const mods = await db
-      .select({ day: modifications.day, status: modifications.status })
-      .from(modifications)
-      .where(and(eq(modifications.employeeId, employeeId), gte(modifications.day, from), lte(modifications.day, to)));
+    const byEmp = await buildDays([employeeId], from, to);
+    return c.json({ days: byEmp.get(employeeId) ?? [] });
+  })
 
-    const days = new Map<string, {
-      day: string;
-      entries: typeof hydrated;
-      workedMinutes: number;
-      hasOpen: boolean;
-      approved: { at: Date; by: string } | null;
-      pendingMods: number;
-      disputedMods: number;
-    }>();
-    const get = (d: string) => {
-      let v = days.get(d);
-      if (!v) {
-        v = { day: d, entries: [], workedMinutes: 0, hasOpen: false, approved: null, pendingMods: 0, disputedMods: 0 };
-        days.set(d, v);
-      }
-      return v;
-    };
-    for (const e of hydrated) {
-      const d = get(e.day);
-      d.entries.push(e);
-      d.workedMinutes += e.workedMinutes ?? 0;
-      if (!e.clockOut) d.hasOpen = true;
+  // Same, for every active employee (or one, with employeeId). With no
+  // from/to: the previous + current pay period, reaching back to the oldest
+  // open staff change (max 62 days) so nothing waiting is out of view.
+  .get("/days/all", requireRole("lead"), async (c) => {
+    const q = z
+      .object({ employeeId: z.string().uuid().optional(), from: DAY.optional(), to: DAY.optional() })
+      .refine((v) => !v.from || !v.to || v.from <= v.to)
+      .safeParse({ employeeId: c.req.query("employeeId"), from: c.req.query("from"), to: c.req.query("to") });
+    if (!q.success) return c.json({ error: "bad_request" }, 400);
+    const db = getDb();
+    const people = await db
+      .select({ id: employees.id, name: employees.displayName })
+      .from(employees)
+      .where(q.data.employeeId ? eq(employees.id, q.data.employeeId) : eq(employees.active, true))
+      .orderBy(asc(employees.displayName));
+    const ids = people.map((p) => p.id);
+    const now = new Date();
+    const to = q.data.to ?? dayOf(now);
+    let from = q.data.from;
+    if (!from) {
+      const cur = await periodWindowContaining(now);
+      const prev = await periodWindowContaining(new Date(cur.startAt.getTime() - 1));
+      from = dayOf(prev.startAt);
+      const floor = dayOf(new Date(Date.parse(`${to}T12:00:00Z`) - 62 * 86400_000));
+      const [oldest] = ids.length
+        ? await db
+            .select({ day: modifications.day })
+            .from(modifications)
+            .where(and(inArray(modifications.employeeId, ids), inArray(modifications.status, ["pending", "disputed"])))
+            .orderBy(asc(modifications.day))
+            .limit(1)
+        : [];
+      if (oldest && oldest.day < from) from = oldest.day < floor ? floor : oldest.day;
     }
-    for (const a of approvals) get(a.a.day).approved = { at: a.a.approvedAt, by: a.by };
-    for (const m of mods) {
-      if (m.status === "pending") get(m.day).pendingMods++;
-      if (m.status === "disputed") get(m.day).disputedMods++;
-    }
-    return c.json({ days: [...days.values()].sort((a, b) => (a.day < b.day ? 1 : -1)) });
+    if (from > to) return c.json({ error: "bad_request" }, 400);
+    const byEmp = await buildDays(ids, from, to);
+    return c.json({
+      from,
+      to,
+      people: people.map((p) => ({ employeeId: p.id, employeeName: p.name, days: byEmp.get(p.id) ?? [] })),
+    });
   })
 
   // Approve day(s): staff can no longer edit them. Open shifts or an open
