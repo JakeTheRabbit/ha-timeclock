@@ -10,7 +10,7 @@ import { autoDeductMinutes, unpaidBreakMinutes, workedMinutes } from "@/server/d
 import { getSettings } from "@/server/domain/settings";
 import { geofenceFlag } from "@/server/domain/antifraud/geofence";
 import { ipFlag } from "@/server/domain/antifraud/ip-lock";
-import { savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
+import { decodePunchPhoto, savePunchPhoto, PhotoError } from "@/server/domain/antifraud/photo";
 import { schedulePush } from "@/server/integrations/ha/state-push";
 import { doorAccessFlag } from "@/server/domain/antifraud/door-access";
 import { notify } from "@/server/integrations/notify";
@@ -156,6 +156,16 @@ export const clock = new Hono<AppEnv>()
       return c.json({ error: "photo_required" }, 400);
     }
 
+    let photo: Buffer | undefined;
+    if (body.data.photo) {
+      try {
+        photo = decodePunchPhoto(body.data.photo);
+      } catch (e) {
+        if (!(e instanceof PhotoError)) throw e;
+        if (antifraud.photoOnPunch) return c.json({ error: e.code }, 400);
+      }
+    }
+
     if (queued) flags.push("offline_queued");
 
     const clockIn = queued ?? new Date();
@@ -187,17 +197,12 @@ export const clock = new Hono<AppEnv>()
 
     // Photo persists after the entry exists (path is keyed by entry id).
     let photoPath: string | null = null;
-    if (body.data.photo) {
+    if (photo) {
       try {
-        photoPath = savePunchPhoto(entry.id, body.data.photo);
+        photoPath = savePunchPhoto(entry.id, photo);
         await getDb().update(timeEntries).set({ photoPath }).where(eq(timeEntries.id, entry.id));
-      } catch (e) {
-        if (e instanceof PhotoError && antifraud.photoOnPunch) {
-          // Enforced photo failed validation: remove nothing (entry stands),
-          // but record the flag loudly.
-          flags.push(e.code);
-          await getDb().update(timeEntries).set({ fraudFlags: flags }).where(eq(timeEntries.id, entry.id));
-        }
+      } catch {
+        // A storage failure leaves the clock-in available for review.
       }
     }
 

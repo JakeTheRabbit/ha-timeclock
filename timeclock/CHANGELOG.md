@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1 — clock-in photo validation
+
+- When a clock-in requires a photo, the server validates it before recording
+  the time entry. The kiosk can retry after a photo validation error.
+
 ## 0.14.0 — consistency, kiosk, admin depth
 
 Staff
