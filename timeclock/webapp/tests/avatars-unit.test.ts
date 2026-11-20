@@ -9,7 +9,7 @@ import { initials } from "@/lib/avatar";
  */
 
 const people: PersonPicture[] = [
-  { path: "/local/ben.jpg", userId: "ha-user-ben", name: "Ben Example" },
+  { path: "/local/demo.jpg", userId: "ha-user-demo", name: "Demo Example" },
   { path: "/api/image/serve/abc/512x512", userId: "ha-user-stew", name: "stew" },
   { path: "/local/priya.png", userId: null, name: "Priya Nair" },
 ];
@@ -53,11 +53,11 @@ describe("matchPicture", () => {
   });
 
   it("returns null against an empty people list", () => {
-    expect(matchPicture({ haUsername: "ha-user-ben", displayName: "Ben Example" }, [])).toBeNull();
+    expect(matchPicture({ haUsername: "ha-user-demo", displayName: "Demo Example" }, [])).toBeNull();
   });
 
   it("user id takes precedence over a conflicting display-name match", () => {
-    // ha_username points at Ben's id, but the display name is Priya's — must
+    // ha_username points at Demo's id, but the display name is Priya's — must
     // follow the id (the reliable SSO link), not the name.
     expect(
       matchPicture({ haUsername: "ha-user-demo", displayName: "Priya Nair" }, people),
